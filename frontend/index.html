@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/keen-logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Keen Evening Coaching AMS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              keen: {
+                cyan: '#00D9F5',        // Outer ring & human figure motif
+                cyanDark: '#00B8D4',    // Hover states
+                cyanSoft: '#E6FBFE',    // Light active pill fills
+                charcoal: '#21262B',    // Inner ring & open book fill
+                darkest: '#14181B',     // Deep background for high contrast
+                surface: '#FFFFFF',     // Clean white center from the emblem
+                border: '#D9E2EC',      // Slate border lines
+                muted: '#5A6672'        // Secondary typography
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body { background-color: #F4F8FA; }
+      :focus-visible { outline: 2px solid #00B8D4; outline-offset: 2px; }
+      @media (prefers-reduced-motion: reduce) {
+        * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+      }
+    </style>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+    <style>
+      html { font-family: "Inter", ui-sans-serif, system-ui, sans-serif !important; }
+      code, kbd, .font-mono { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace !important; }
+    </style>
+      <style id="keen-type-scale">
+      body { font-size: 14px; line-height: 1.5; font-weight: 400; -webkit-font-smoothing: antialiased; }
+      h1 { font-size: 1.75rem !important; line-height: 2.25rem !important; font-weight: 700 !important; letter-spacing: -0.02em; }
+      h2, h3 { font-weight: 600 !important; }
+      .text-xs { font-size: 0.75rem !important; line-height: 1rem !important; }
+      .text-sm { font-size: 0.875rem !important; line-height: 1.25rem !important; }
+      .text-base { font-size: 0.9375rem !important; line-height: 1.5rem !important; }
+      .text-\[11px\] { font-size: 0.6875rem !important; line-height: 1rem !important; }
+      .font-extrabold, .font-black { font-weight: 700 !important; }
+      .font-bold { font-weight: 600 !important; }
+      th { font-weight: 600 !important; letter-spacing: 0.04em; }
+    </style>
+      <style>
+      @page { size: A4 portrait; margin: 10mm; }
+      @media print {
+        html, body { width: 210mm; margin: 0; background: #fff !important; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }
+    </style>
+  </head>
+  <body class="text-keen-charcoal font-sans antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
