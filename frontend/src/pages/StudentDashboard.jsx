@@ -53,7 +53,7 @@ function userId() {
 
 export default function StudentDashboard() {
   const { session } = useAuth();
-  const displayName = titleCase(session?.user?.first_name || session?.username || "");
+  const displayName = session?.fullName || titleCase(session?.user?.first_name || session?.username || "");
 
   const [slots, setSlots] = useState([]);
   const [marks, setMarks] = useState([]);

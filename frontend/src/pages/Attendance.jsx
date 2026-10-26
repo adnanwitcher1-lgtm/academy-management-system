@@ -5,11 +5,35 @@ import { AppShell } from "../components/ui";
 
 const STATUSES = [
   { value: "present", label: "Present" },
-  { value: "absent", label: "Absent" },
   { value: "late", label: "Late" },
+  { value: "absent", label: "Absent" },
   { value: "leave", label: "Leave" },
 ];
-const labelOf = (v) => STATUSES.find((s) => s.value === v)?.label ?? "-";
+const ALL_STATUSES = [...STATUSES, { value: "holiday", label: "Holiday" }];
+const labelOf = (v) => ALL_STATUSES.find((s) => s.value === v)?.label ?? "-";
+
+function Legend() {
+  return (
+    <div className="at-legend" aria-label="Colour legend">
+      {ALL_STATUSES.map((st) => (
+        <span key={st.value} className={"at-chip at-st-" + st.value}>
+          {st.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function HolidayBanner({ title, day }) {
+  return (
+    <div className="at-holiday" role="status">
+      <strong>Holiday{title ? ": " + title : ""}</strong>
+      <span>
+        {day ? fmtLong(day) + ". " : ""}The academy is closed, so attendance is not taken and every student is marked Holiday.
+      </span>
+    </div>
+  );
+}
 
 const asList = (d) => (Array.isArray(d) ? d : d?.results ?? []);
 const titleCase = (s) =>
@@ -61,6 +85,7 @@ function StatusPill({ status }) {
 export default function Attendance() {
   const { role } = useAuth();
   const isStudent = role === "student";
+  const isAdmin = role === "admin";
   const [tab, setTab] = useState("class");
 
   return (
@@ -73,6 +98,8 @@ export default function Attendance() {
           ? "Mark attendance for a class and print the sheet."
           : tab === "date"
           ? "See saved attendance for any past date."
+          : tab === "holidays"
+          ? "Days the academy is closed. Sundays are always off."
           : "Look up any student's attendance history."
       }
     >
@@ -92,8 +119,21 @@ export default function Attendance() {
               <button type="button" role="tab" className="at-tab" aria-selected={tab === "search"} onClick={() => setTab("search")}>
                 Search student
               </button>
+              {isAdmin && (
+                <button type="button" role="tab" className="at-tab" aria-selected={tab === "holidays"} onClick={() => setTab("holidays")}>
+                  Holidays
+                </button>
+              )}
             </div>
-            {tab === "class" ? <ClassSheet /> : tab === "date" ? <ByDate /> : <SearchStudent />}
+            {tab === "class" ? (
+              <ClassSheet />
+            ) : tab === "date" ? (
+              <ByDate />
+            ) : tab === "holidays" && isAdmin ? (
+              <HolidaysPanel />
+            ) : (
+              <SearchStudent />
+            )}
           </>
         )}
       </div>
@@ -172,15 +212,16 @@ function ClassSheet() {
   });
 
   const counts = useMemo(() => {
-    const c = { present: 0, absent: 0, late: 0, leave: 0, unmarked: 0 };
+    const c = { present: 0, absent: 0, late: 0, leave: 0, holiday: 0, unmarked: 0 };
     for (const s of students) {
-      const st = draft[s.student]?.status;
-      if (st) c[st] += 1;
+      const st = sheet?.is_holiday ? s.status : draft[s.student]?.status;
+      if (st) c[st] = (c[st] || 0) + 1;
       else c.unmarked += 1;
     }
     return c;
-  }, [students, draft]);
+  }, [students, draft, sheet]);
 
+  const holiday = !!sheet?.is_holiday;
   const markedCount = students.length - counts.unmarked;
 
   const confirmLeave = () => !dirty || window.confirm("You have unsaved attendance. Discard it?");
@@ -255,13 +296,13 @@ function ClassSheet() {
           <input type="date" value={day} max={todayStr()} onChange={(e) => pickDay(e.target.value)} />
         </label>
         <div className="at-actions">
-          <button type="button" className="at-btn" onClick={markAllPresent} disabled={students.length === 0}>
+          <button type="button" className="at-btn" onClick={markAllPresent} disabled={students.length === 0 || holiday}>
             Mark all present
           </button>
           <button type="button" className="at-btn" onClick={() => window.print()} disabled={students.length === 0}>
             Print class attendance
           </button>
-          <button type="button" className="at-btn at-btn-primary" onClick={save} disabled={saving || !dirty || markedCount === 0}>
+          <button type="button" className="at-btn at-btn-primary" onClick={save} disabled={saving || holiday || !dirty || markedCount === 0}>
             {saving ? "Saving..." : "Save attendance"}
           </button>
         </div>
@@ -303,12 +344,25 @@ function ClassSheet() {
                 </span>
               )}
             </p>
+            {holiday && <HolidayBanner title={sheet.holiday_title} />}
             <div className="at-chips">
-              <span className="at-chip at-st-present">Present {counts.present}</span>
-              <span className="at-chip at-st-absent">Absent {counts.absent}</span>
-              <span className="at-chip at-st-late">Late {counts.late}</span>
-              <span className="at-chip at-st-leave">Leave {counts.leave}</span>
-              <span className="at-chip at-st-none">Not marked {counts.unmarked}</span>
+              {holiday ? (
+                <>
+                  <span className="at-chip at-st-holiday">Holiday {counts.holiday + counts.unmarked}</span>
+                  {counts.present > 0 && <span className="at-chip at-st-present">Present {counts.present}</span>}
+                  {counts.late > 0 && <span className="at-chip at-st-late">Late {counts.late}</span>}
+                  {counts.absent > 0 && <span className="at-chip at-st-absent">Absent {counts.absent}</span>}
+                  {counts.leave > 0 && <span className="at-chip at-st-leave">Leave {counts.leave}</span>}
+                </>
+              ) : (
+                <>
+                  <span className="at-chip at-st-present">Present {counts.present}</span>
+                  <span className="at-chip at-st-late">Late {counts.late}</span>
+                  <span className="at-chip at-st-absent">Absent {counts.absent}</span>
+                  <span className="at-chip at-st-leave">Leave {counts.leave}</span>
+                  <span className="at-chip at-st-none">Not marked {counts.unmarked}</span>
+                </>
+              )}
               {dirty && <span className="at-unsaved">Unsaved changes</span>}
             </div>
 
@@ -332,6 +386,9 @@ function ClassSheet() {
                         <td>{s.roll_no}</td>
                         <td className="at-name">{titleCase(s.name)}</td>
                         <td>
+                          {holiday ? (
+                            <StatusPill status={s.status || "holiday"} />
+                          ) : (
                           <div className="at-seg" role="group" aria-label={"Status for " + s.name}>
                             {STATUSES.map((st) => (
                               <button
@@ -345,10 +402,12 @@ function ClassSheet() {
                               </button>
                             ))}
                           </div>
+                          )}
                         </td>
                         <td>
                           <input
                             className="at-note"
+                            disabled={holiday}
                             value={draft[s.student]?.note ?? ""}
                             maxLength={200}
                             placeholder="Optional"
@@ -366,7 +425,7 @@ function ClassSheet() {
 
           <article className="at-print">
             <header>
-              <h1>KEEN Evening Coaching</h1>
+              <h1>KEEN EVENING COACHING</h1>
               <p>Class attendance sheet</p>
             </header>
             <dl className="at-print-meta">
@@ -409,15 +468,15 @@ function ClassSheet() {
                     <td>{i + 1}</td>
                     <td>{s.roll_no}</td>
                     <td>{titleCase(s.name)}</td>
-                    <td>{draft[s.student]?.status ? labelOf(draft[s.student].status) : "-"}</td>
+                    <td>{(holiday ? s.status : draft[s.student]?.status) ? labelOf(holiday ? s.status : draft[s.student].status) : "-"}</td>
                     <td>{draft[s.student]?.note || ""}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
             <p className="at-print-totals">
-              Present {counts.present}, Absent {counts.absent}, Late {counts.late}, Leave {counts.leave}, Not marked{" "}
-              {counts.unmarked}. Total students {students.length}.
+              Present {counts.present}, Late {counts.late}, Absent {counts.absent}, Leave {counts.leave}
+              {counts.holiday ? ", Holiday " + counts.holiday : ""}, Not marked {counts.unmarked}. Total students {students.length}.
             </p>
             <p className="at-print-stamp">Printed on {fmtStamp()}</p>
             <div className="at-sign">
@@ -466,10 +525,10 @@ function ByDate() {
   );
 
   const totals = useMemo(() => {
-    const c = { present: 0, absent: 0, late: 0, leave: 0, none: 0 };
+    const c = { present: 0, absent: 0, late: 0, leave: 0, holiday: 0, none: 0 };
     for (const sh of visible)
       for (const s of sh.students) {
-        if (s.status) c[s.status] += 1;
+        if (s.status) c[s.status] = (c[s.status] || 0) + 1;
         else c.none += 1;
       }
     return c;
@@ -506,6 +565,7 @@ function ByDate() {
             <option value="absent">Absent</option>
             <option value="late">Late</option>
             <option value="leave">Leave</option>
+            <option value="holiday">Holiday</option>
             <option value="none">Not marked</option>
           </select>
         </label>
@@ -521,11 +581,13 @@ function ByDate() {
       {!loading && !error && (
         <>
           <p className="at-dateline">{fmtLong(day)}</p>
+          {sheets.length > 0 && sheets[0].is_holiday && <HolidayBanner title={sheets[0].holiday_title} />}
           <div className="at-chips">
             <span className="at-chip at-st-present">Present {totals.present}</span>
-            <span className="at-chip at-st-absent">Absent {totals.absent}</span>
             <span className="at-chip at-st-late">Late {totals.late}</span>
+            <span className="at-chip at-st-absent">Absent {totals.absent}</span>
             <span className="at-chip at-st-leave">Leave {totals.leave}</span>
+            {totals.holiday > 0 && <span className="at-chip at-st-holiday">Holiday {totals.holiday}</span>}
             <span className="at-chip at-st-none">Not marked {totals.none}</span>
           </div>
 
@@ -672,6 +734,7 @@ function MarkStudent({ student, onSaved }) {
   const [status, setStatus] = useState(null);
   const [note, setNote] = useState("");
   const [saved, setSaved] = useState(null);
+  const [closed, setClosed] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -710,6 +773,7 @@ function MarkStudent({ student, onSaved }) {
       .attendanceSheet(classId, day)
       .then((sheet) => {
         if (!alive) return;
+        setClosed(sheet.is_holiday ? sheet.holiday_title || "Holiday" : "");
         const row = sheet.students.find((s) => s.student === student.id);
         setSaved(row?.status ? { status: row.status, note: row.note || "" } : null);
         setStatus(row?.status ?? null);
@@ -769,12 +833,13 @@ function MarkStudent({ student, onSaved }) {
 
       {classId && (
         <>
+          {closed && <HolidayBanner title={closed} day={day} />}
           <div className="at-controls">
             <label>
               Date
               <input type="date" value={day} max={todayStr()} onChange={(e) => e.target.value && setDay(e.target.value)} />
             </label>
-            <div className="at-field">
+            <div className="at-field" style={closed ? { display: "none" } : undefined}>
               <span>Status</span>
               <div className="at-seg" role="group" aria-label="Status">
                 {STATUSES.map((st) => (
@@ -809,7 +874,7 @@ function MarkStudent({ student, onSaved }) {
               type="button"
               className="at-btn at-btn-primary"
               onClick={save}
-              disabled={saving || loading || !status || !dirty}
+              disabled={saving || loading || !!closed || !status || !dirty}
             >
               {saving ? "Saving..." : "Save attendance"}
             </button>
@@ -929,16 +994,20 @@ function StudentHistory({ userId }) {
               <strong>{sm.present}</strong>
             </div>
             <div className="at-card">
-              <span>Absent</span>
-              <strong>{sm.absent}</strong>
-            </div>
-            <div className="at-card">
               <span>Late</span>
               <strong>{sm.late}</strong>
             </div>
             <div className="at-card">
+              <span>Absent</span>
+              <strong>{sm.absent}</strong>
+            </div>
+            <div className="at-card">
               <span>Leave</span>
               <strong>{sm.leave}</strong>
+            </div>
+            <div className="at-card">
+              <span>Holidays</span>
+              <strong className="at-holiday-num">{sm.holiday ?? 0}</strong>
             </div>
             <div className="at-card at-card-pct">
               <span>Attendance</span>
@@ -948,7 +1017,19 @@ function StudentHistory({ userId }) {
               </div>
             </div>
           </div>
-          <p className="at-muted at-hint">Attendance counts Present and Late days out of all days marked.</p>
+          <p className="at-muted at-hint">Attendance counts Present and Late days out of working days marked. Holidays are not counted.</p>
+          <Legend />
+
+          {data.records.length > 0 && (
+            <div className="at-days" aria-label="Day by day calendar">
+              {[...data.records].reverse().map((r) => (
+                <div key={r.date} className={"at-day at-st-" + r.status} title={fmtShort(r.date) + " - " + labelOf(r.status) + (r.status === "holiday" && r.note ? " (" + r.note + ")" : "")}>
+                  <b>{Number(r.date.slice(8))}</b>
+                  <small>{new Date(r.date + "T00:00:00").toLocaleDateString("en-GB", { month: "short", weekday: "short" })}</small>
+                </div>
+              ))}
+            </div>
+          )}
 
           {data.records.length === 0 ? (
             <p className="at-muted">No attendance has been marked in this period.</p>
@@ -972,7 +1053,7 @@ function StudentHistory({ userId }) {
                       <td>
                         <StatusPill status={r.status} />
                       </td>
-                      <td>{fmtClock(r.marked_at)}</td>
+                      <td>{fmtClock(r.marked_at) || "-"}</td>
                       <td>{r.note || "-"}</td>
                     </tr>
                   ))}
@@ -981,6 +1062,151 @@ function StudentHistory({ userId }) {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// Admin only: add and remove days the academy is closed.
+function HolidaysPanel() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api.listHolidays();
+      setRows(asList(d).slice().sort((a, b) => a.date.localeCompare(b.date)));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function add(e) {
+    e.preventDefault();
+    if (!date || !title.trim() || busy) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const r = await api.createHoliday({ date, title: title.trim() });
+      setNotice(
+        r.students_marked
+          ? "Added " + r.title + ". " + r.students_marked + " student" + (r.students_marked === 1 ? " was" : "s were") + " marked Holiday."
+          : "Added " + r.title + "."
+      );
+      setTitle("");
+      if (date < todayStr()) setShowAll(true);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(h) {
+    if (!window.confirm("Remove the holiday \"" + h.title + "\" on " + fmtShort(h.date) + "? Students' automatic Holiday marks for that day are cleared.")) return;
+    setDeleting(h.id);
+    setError("");
+    setNotice("");
+    try {
+      await api.deleteHoliday(h.id);
+      setNotice("Removed " + h.title + ".");
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  const today = todayStr();
+  const shown = showAll ? rows : rows.filter((h) => h.date >= today);
+
+  return (
+    <div>
+      <form className="at-controls" onSubmit={add}>
+        <label>
+          Date
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+        </label>
+        <label className="at-mark-note">
+          Holiday title
+          <input value={title} maxLength={100} placeholder="e.g. Eid ul Fitr" onChange={(e) => setTitle(e.target.value)} required />
+        </label>
+        <button type="submit" className="at-btn at-btn-primary" disabled={busy || !title.trim() || !date}>
+          {busy ? "Adding..." : "Add holiday"}
+        </button>
+      </form>
+      <p className="at-muted at-hint">Sundays are the weekly off and need no entry. Adding a past or current date marks every student Holiday for that day.</p>
+
+      {error && (
+        <div className="at-msg at-err" role="alert">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="at-msg at-ok" role="status">
+          {notice}
+        </div>
+      )}
+
+      <div className="at-controls" style={{ marginBottom: 10 }}>
+        <div className="at-seg" role="group" aria-label="Which holidays">
+          <button type="button" aria-pressed={!showAll} className="s-present" onClick={() => setShowAll(false)}>
+            Upcoming
+          </button>
+          <button type="button" aria-pressed={showAll} className="s-present" onClick={() => setShowAll(true)}>
+            All
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="at-muted">Loading holidays...</p>
+      ) : shown.length === 0 ? (
+        <p className="at-muted">{showAll ? "No holidays have been added yet." : "No upcoming holidays. Add one above."}</p>
+      ) : (
+        <div className="at-wrap">
+          <table className="at-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Day</th>
+                <th>Holiday</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((h) => (
+                <tr key={h.id}>
+                  <td>{fmtShort(h.date)}</td>
+                  <td>{new Date(h.date + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long" })}</td>
+                  <td>
+                    <span className="at-pill at-st-holiday">{h.title}</span>
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <button type="button" className="at-btn at-btn-danger" disabled={deleting === h.id} onClick={() => remove(h)}>
+                      {deleting === h.id ? "Removing..." : "Delete"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -1016,6 +1242,7 @@ const css = `
 .at-st-absent { background: #fdecea; color: #b3261e; }
 .at-st-late { background: #fff4d6; color: #7a5a00; }
 .at-st-leave { background: #e8f0fc; color: #1d4ed8; }
+.at-st-holiday { background: #f1e8fb; color: #6b21a8; }
 .at-st-none { background: #eef0f3; color: #5d6b7a; }
 .at-block { margin-bottom: 22px; }
 .at-block-title { margin: 0 0 8px; font-size: 1.05rem; }
@@ -1033,6 +1260,23 @@ const css = `
 .at-seg button[aria-pressed="true"].s-absent { background: #fdecea; color: #b3261e; }
 .at-seg button[aria-pressed="true"].s-late { background: #fff4d6; color: #7a5a00; }
 .at-seg button[aria-pressed="true"].s-leave { background: #e8f0fc; color: #1d4ed8; }
+.at-seg button.s-present { color: #1e6b3a; }
+.at-seg button.s-late { color: #7a5a00; }
+.at-seg button.s-absent { color: #b3261e; }
+.at-seg button.s-leave { color: #1d4ed8; }
+.at-seg button[aria-pressed="true"].s-present { background: #1e8e5a; color: #fff; }
+.at-seg button[aria-pressed="true"].s-absent { background: #d92d20; color: #fff; }
+.at-seg button[aria-pressed="true"].s-late { background: #f5b301; color: #3d2c00; }
+.at-seg button[aria-pressed="true"].s-leave { background: #2f6fed; color: #fff; }
+.at-btn-danger { color: #b3261e; border-color: #f0b8b3; }
+.at-holiday { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; margin-bottom: 14px; border-radius: 8px; background: #f1e8fb; color: #4c1d7a; border: 1px solid #dcc6f3; }
+.at-holiday-num { color: #6b21a8; }
+.at-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.at-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 6px; margin: 0 0 16px; }
+.at-day { display: flex; flex-direction: column; align-items: center; padding: 6px 2px; border-radius: 8px; line-height: 1.2; }
+.at-day b { font-size: 1rem; }
+.at-day small { font-size: .65rem; opacity: .85; }
+@media (max-width: 640px) { .at-actions { margin-left: 0; } .at-tabs { overflow-x: auto; } .at-tab { padding: 10px 12px; white-space: nowrap; } .at-controls select { min-width: 0; width: 100%; } .at-controls label { flex: 1 1 140px; } }
 .at-note { width: 100%; min-width: 140px; }
 .at-results { list-style: none; margin: 0 0 24px; padding: 0; max-width: 520px; border: 1px solid var(--at-line); border-radius: 8px; background: #fff; overflow: hidden; }
 .at-results li + li { border-top: 1px solid var(--at-line); }

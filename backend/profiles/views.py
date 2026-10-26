@@ -22,11 +22,24 @@ def _bad(message, status=400):
 def _payload(user):
     prefs, _ = UserSettings.objects.get_or_create(user=user)
     teacher = TeacherProfile.objects.filter(user=user).first()
+    full_name = user.get_full_name()
+    extra = {}
+    student = getattr(user, "student_profile", None)
+    if student:
+        # Students are named in the roster (the full name the admin typed at enrolment).
+        entry = student.roster_entry
+        full_name = entry.full_name or full_name
+        extra = {
+            "father_name": entry.father_name,
+            "roll_no": entry.roll_no,
+            "class_label": str(entry.school_class) if entry.school_class_id else entry.class_name,
+        }
     return {
+        **extra,
         "username": user.username,
         "first_name": user.first_name,
         "last_name": user.last_name,
-        "full_name": user.get_full_name(),
+        "full_name": full_name or user.username,
         "email": user.email,
         "role": getattr(user, "role", ""),
         "specialization": getattr(teacher, "subject_specialization", "") if teacher else "",

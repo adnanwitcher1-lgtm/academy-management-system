@@ -64,3 +64,13 @@ from .views import ResetTeacherPasswordView
 urlpatterns += [
     path("teachers/profiles/<int:pk>/reset-password/", ResetTeacherPasswordView.as_view(), name="teacher-reset-password"),
 ]
+
+
+from .student_overview import StudentOverviewPdfView, StudentOverviewView
+
+urlpatterns += [
+    path("students/me/overview/", StudentOverviewView.as_view(), name="student-me-overview"),
+    path("students/me/overview/pdf/", StudentOverviewPdfView.as_view(), name="student-me-overview-pdf"),
+    path("students/<int:pk>/overview/", StudentOverviewView.as_view(), name="student-overview"),
+    path("students/<int:pk>/overview/pdf/", StudentOverviewPdfView.as_view(), name="student-overview-pdf"),
+]

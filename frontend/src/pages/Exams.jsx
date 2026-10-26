@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../lib/api";
+import { api, downloadPdf, pdfPaths } from "../lib/api";
 import {
   AddButton,
   AppShell,
@@ -13,6 +13,32 @@ import {
 } from "../components/ui";
 
 const EMPTY = { name: "", date: "", school_class: "" };
+
+function ResultCardButton({ examId, studentId, label = "Result card (PDF)", rollNo, className = "px-3 py-1.5 text-xs" }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function go() {
+    if (busy) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await downloadPdf(pdfPaths.reportCard(examId, studentId), "result-card-" + (rollNo || studentId) + "-" + examId + ".pdf");
+    } catch (e) {
+      setErr(e?.message || "Could not create the PDF.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <span className="inline-flex flex-col items-start gap-1 print:hidden">
+      <Button variant="quiet" onClick={go} disabled={busy || !examId || !studentId} className={className}>
+        {busy ? "Preparing..." : label}
+      </Button>
+      {err ? <span className="text-xs font-semibold text-red-600" role="alert">{err}</span> : null}
+    </span>
+  );
+}
+
 
 const TONES = [
   "bg-amber-50 text-amber-800 border-amber-200",
@@ -129,6 +155,9 @@ function StudentResultSheet({ student, exam, subjects, onClose, initialView = "a
           <Button variant="quiet" onClick={onClose} className="px-4 py-2 text-sm">
             Close
           </Button>
+          {exam?.id && student?.student_id ? (
+            <ResultCardButton examId={exam.id} studentId={student.student_id} rollNo={student.roll_no} label="Download result card (PDF)" className="px-4 py-2 text-sm" />
+          ) : null}
           <Button onClick={() => window.print()} className="px-4 py-2 text-sm">
             Print
           </Button>
@@ -136,7 +165,7 @@ function StudentResultSheet({ student, exam, subjects, onClose, initialView = "a
 
         <article className="rs-sheet">
           <header className="rs-head">
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}><img src="/keen-logo.png" alt="KEEN Academy logo" style={{ height: 56, width: "auto", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }} /><h1>KEEN Academy</h1></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}><img src="/keen-logo.png" alt="KEEN EVENING COACHING logo" style={{ height: 56, width: "auto", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }} /><h1>KEEN EVENING COACHING</h1></div>
             <p>{view === "all" ? "Student Report Card" : view + " Result"}</p>
           </header>
 
@@ -236,6 +265,10 @@ function FullStudentReportCard({ student, onClose }) {
   const totalObt = rows.reduce((sum, r) => sum + Number(r.obtained_marks || 0), 0);
   const totalMax = rows.reduce((sum, r) => sum + Number(r.total_marks || 0), 0);
   const percentage = totalMax > 0 ? Math.round((totalObt / totalMax) * 10000) / 100 : 0;
+  const examsInCard = [];
+  for (const r of student?.rows || []) {
+    if (r.exam_id && !examsInCard.some((x) => x.id === r.exam_id)) examsInCard.push({ id: r.exam_id, name: r.exam_name || "Exam " + r.exam_id });
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-6 print:static print:bg-white print:p-0">
@@ -251,11 +284,20 @@ function FullStudentReportCard({ student, onClose }) {
           </Button>
         </div>
 
+        {examsInCard.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center justify-end gap-2 print:hidden">
+            <span className="text-xs font-bold text-white">Result card (PDF):</span>
+            {examsInCard.map((x) => (
+              <ResultCardButton key={x.id} examId={x.id} studentId={student.student_id} rollNo={student.roll_no} label={x.name} />
+            ))}
+          </div>
+        )}
+
         <article className="rs-sheet">
           <header className="rs-head">
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <img src="/keen-logo.png" alt="KEEN Academy logo" style={{ height: 56, width: "auto", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }} />
-              <h1>KEEN Academy</h1>
+              <img src="/keen-logo.png" alt="KEEN EVENING COACHING logo" style={{ height: 56, width: "auto", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }} />
+              <h1>KEEN EVENING COACHING</h1>
             </div>
             <p>Student Full Report Card</p>
           </header>
@@ -1178,9 +1220,12 @@ export default function Exams() {
                               </span>
                             </td>
                             <td className="px-5 py-4 print:hidden">
-                              <Button variant="quiet" onClick={() => setSheetStudent(r)} className="px-3 py-1.5 text-xs">
-                                View / print
-                              </Button>
+                              <div className="flex flex-wrap gap-2">
+                                <Button variant="quiet" onClick={() => setSheetStudent(r)} className="px-3 py-1.5 text-xs">
+                                  View / print
+                                </Button>
+                                <ResultCardButton examId={resultsExamId} studentId={r.student_id} rollNo={r.roll_no} label="Download result card (PDF)" />
+                              </div>
                             </td>
                           </tr>
                         ))}

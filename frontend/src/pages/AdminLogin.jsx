@@ -39,7 +39,7 @@ export default function AdminLogin() {
         <div className="mb-8 flex items-center gap-3">
           <Logo size={48} className="border-2 border-keen-cyan" />
           <div>
-            <h1 className="font-extrabold text-xs tracking-wider text-white">KEEN EVENING</h1>
+            <h1 className="font-extrabold text-xs tracking-wider text-white">KEEN EVENING COACHING</h1>
             <p className="text-[9px] font-bold uppercase tracking-widest text-keen-cyan">
               Admin access
             </p>

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../lib/api";
+import { useSearchParams } from "react-router-dom";
+import { api, downloadPdf, pdfPaths } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { AppShell } from "../components/ui";
 import FeeReceipt from "../components/FeeReceipt";
+import { FeeStructurePanel } from "./FeeStructure";
 
 const money = (n) => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFractionDigits: 2 });
 const compact = (n) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
@@ -24,10 +26,311 @@ const greeting = () => {
 function computedStatus(p) {
   if (!p) return "unbilled";
   if (p.status === "paid") return "paid";
+  if (p.status === "carried") return "carried";
   return p.due_date < todayStr() ? "overdue" : "pending";
 }
 
-const STATUS_LABEL = { paid: "Paid", pending: "Pending", overdue: "Overdue", unbilled: "No fee set" };
+const SECTIONS = [
+  ["overview", "Overview"],
+  ["pending", "Pending fees"],
+  ["history", "Fee history"],
+  ["structure", "Fee structure"],
+];
+const asList = (d) => (Array.isArray(d) ? d : d?.results ?? []);
+const classText = (c) => c.name + (c.section ? " " + c.section : "");
+
+async function getPdf(p, setError) {
+  try {
+    await downloadPdf(pdfPaths.feeSlip(p.id), (p.challan_no || "fee-slip") + ".pdf");
+  } catch (e) {
+    setError(e.message);
+  }
+}
+
+// Asks who received the money and on what day, then marks the challan paid.
+function MarkPaidModal({ payment, name, defaultName, saving, onSubmit, onClose }) {
+  const [by, setBy] = useState(defaultName);
+  const [paidOn, setPaidOn] = useState(todayStr());
+  return (
+    <div className="fx-overlay" onClick={() => !saving && onClose()}>
+      <form className="fx-panel" onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => { e.preventDefault(); onSubmit({ received_by_name: by.trim(), paid_on: paidOn }); }}>
+        <div className="fx-head"><h3>Mark paid: {titleCase(name)}</h3><button type="button" className="fx-x" onClick={onClose}>&times;</button></div>
+        <div className="fx-body fx-form">
+          {payment && (
+            <div>
+              <div className="fx-row"><span>Challan</span><strong>{payment.challan_no}{payment.month_label ? " · " + payment.month_label : ""}</strong></div>
+              <div className="fx-row fx-row-total"><span>Total received</span><strong>{money(payment.total)}</strong></div>
+            </div>
+          )}
+          <label>Received by (name)
+            <input type="text" value={by} onChange={(e) => setBy(e.target.value)} placeholder="Name of the person who took the money" required />
+          </label>
+          <label>Paid on
+            <input type="date" value={paidOn} max={todayStr()} onChange={(e) => setPaidOn(e.target.value)} required />
+          </label>
+        </div>
+        <div className="fx-foot">
+          <button type="button" className="fx-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" className="fx-btn fx-btn-primary" disabled={saving || !by.trim()}>{saving ? "Saving..." : "Mark as Paid"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ClassSelect({ classes, value, onChange }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">All classes</option>
+      {classes.map((c) => <option key={c.id} value={c.id}>{classText(c)}</option>)}
+    </select>
+  );
+}
+
+function PendingPanel({ classes, isAdmin, defaultName, setError, setNotice, onChanged }) {
+  const [data, setData] = useState({ results: [], summary: null });
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [paying, setPaying] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const d = await api.listPendingFees();
+      setData({ results: asList(d), summary: d?.summary || null });
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, [setError]);
+  useEffect(() => { load(); }, [load]);
+
+  const today = todayStr();
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return data.results.filter((p) => {
+      if (classFilter && String(p.school_class) !== classFilter) return false;
+      if (!q) return true;
+      return [p.student_name, p.father_name, p.roll_no, p.challan_no].some((v) => String(v || "").toLowerCase().includes(q));
+    });
+  }, [data, search, classFilter]);
+  const overdueN = data.results.filter((p) => p.due_date < today).length;
+  const sm = data.summary || { count: 0, total: 0, overdue_total: 0, students: 0 };
+
+  async function pay(vals) {
+    setSaving(true); setError("");
+    try {
+      await api.updateFee(paying.id, { status: "paid", ...vals });
+      setNotice("Marked " + paying.challan_no + " as paid (received by " + vals.received_by_name + ").");
+      setPaying(null);
+      await load(); onChanged();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+  function openEdit(p) {
+    setEditing(p);
+    setForm({ amount: String(p.amount), arrears: String(p.arrears || 0), fine: Number(p.fine) ? String(p.fine) : "", fine_note: p.fine_note || "", due_date: p.due_date });
+    setError("");
+  }
+  async function saveEdit(e) {
+    e.preventDefault();
+    setSaving(true); setError("");
+    try {
+      await api.updateFee(editing.id, {
+        amount: form.amount, arrears: form.arrears || 0, fine: form.fine || 0,
+        fine_note: Number(form.fine || 0) > 0 ? form.fine_note : "", due_date: form.due_date,
+      });
+      setNotice("Updated " + editing.challan_no + ".");
+      setEditing(null);
+      await load(); onChanged();
+    } catch (err) { setError(err.message); }
+    finally { setSaving(false); }
+  }
+  async function generate() {
+    setGenerating(true); setError("");
+    try {
+      const r = await api.generateMonthChallans();
+      const made = r?.created ?? 0;
+      setNotice(made ? `Generated ${made} challan(s) for this month.` : "This month's challans already exist. Nothing new was needed.");
+      await load(); onChanged();
+    } catch (e) { setError(e.message); }
+    finally { setGenerating(false); }
+  }
+  const editTotal = editing ? Number(form.amount || 0) + Number(form.arrears || 0) + Number(form.fine || 0) : 0;
+
+  return (
+    <>
+      <div className="fx-topbar">
+        <p className="fx-hint">Challans are created automatically each month and are due on the 10th. Anything unpaid is carried into the next challan as arrears.</p>
+        <button type="button" className="fx-btn fx-btn-primary" onClick={generate} disabled={generating}>
+          <Ico name="plus" size={16} /> {generating ? "Generating..." : "Generate this month's challans"}
+        </button>
+      </div>
+      <div className="fx-stats">
+        <div className="fx-stat"><span className="fx-tile fx-t-amber"><Ico name="receipt" /></span><p>Pending challans</p><strong>{sm.count}</strong><small>unpaid right now</small></div>
+        <div className="fx-stat"><span className="fx-tile fx-t-cyan"><Ico name="card" /></span><p>Total pending</p><strong>{money(sm.total)}</strong><small>fee + arrears + fines</small></div>
+        <div className="fx-stat"><span className="fx-tile fx-t-red"><Ico name="calendar" /></span><p>Overdue</p><strong>{money(sm.overdue_total)}</strong><small>{overdueN} challan(s) past the 10th</small></div>
+        <div className="fx-stat"><span className="fx-tile fx-t-teal"><Ico name="trend" /></span><p>Students</p><strong>{sm.students}</strong><small>with something to pay</small></div>
+      </div>
+
+      <section className="fx-card fx-table-card">
+        <div className="fx-table-head">
+          <div><h3>Pending fees</h3><p>Only unpaid challans. Carried-forward months are inside the arrears.</p></div>
+          <div className="fx-table-tools">
+            <input type="search" placeholder="Search name, roll no, challan..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <ClassSelect classes={classes} value={classFilter} onChange={setClassFilter} />
+          </div>
+        </div>
+        <div className="fx-scroll">
+          <table className="fx-table">
+            <thead>
+              <tr>
+                <th>Challan</th><th>Student</th><th>Father</th><th>Roll</th><th>Class</th><th>Month</th>
+                <th className="r">Fee</th><th className="r">Arrears</th><th className="r">Fine</th><th className="r">Total</th>
+                <th>Due date</th><th />
+              </tr>
+            </thead>
+            <tbody>
+              {loading && <tr><td colSpan={12} className="fx-empty">Loading...</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={12} className="fx-empty">No pending challans. Everything is paid.</td></tr>}
+              {!loading && rows.map((p) => {
+                const late = p.due_date < today;
+                return (
+                  <tr key={p.id}>
+                    <td className="fx-id">{p.challan_no}</td>
+                    <td><strong>{titleCase(p.student_name)}</strong></td>
+                    <td>{titleCase(p.father_name) || "-"}</td>
+                    <td className="fx-id">{p.roll_no || "-"}</td>
+                    <td>{p.class_label || "-"}</td>
+                    <td>{p.month_label || "-"}</td>
+                    <td className="r">{money(p.amount)}</td>
+                    <td className="r">{Number(p.arrears) ? money(p.arrears) : "-"}</td>
+                    <td className="r">
+                      {Number(p.fine) ? <>{money(p.fine)}{p.fine_note && <small className="fx-sub">{p.fine_note}</small>}</> : "-"}
+                    </td>
+                    <td className="r fx-amt">{money(p.total)}</td>
+                    <td>{fmtDay(p.due_date)} {late && <span className="fx-pill fx-overdue fx-sm">Overdue</span>}</td>
+                    <td>
+                      <div className="fx-row-actions">
+                        <button type="button" className="fx-btn-solid" onClick={() => setPaying(p)}>Mark paid</button>
+                        {isAdmin && <button type="button" className="fx-btn-line" onClick={() => openEdit(p)}>Edit</button>}
+                        <button type="button" className="fx-btn-line" onClick={() => getPdf(p, setError)} title="Download PDF slip"><Ico name="pdf" size={15} /> PDF</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {paying && (
+        <MarkPaidModal payment={paying} name={paying.student_name} defaultName={defaultName} saving={saving}
+          onSubmit={pay} onClose={() => setPaying(null)} />
+      )}
+      {editing && (
+        <div className="fx-overlay" onClick={() => !saving && setEditing(null)}>
+          <form className="fx-panel" onClick={(e) => e.stopPropagation()} onSubmit={saveEdit}>
+            <div className="fx-head"><h3>Edit {editing.challan_no}: {titleCase(editing.student_name)}</h3><button type="button" className="fx-x" onClick={() => setEditing(null)}>&times;</button></div>
+            <div className="fx-body fx-form">
+              <label>Monthly fee<input type="number" min="1" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required /></label>
+              <label>Arrears (previous unpaid)<input type="number" min="0" step="0.01" value={form.arrears} onChange={(e) => setForm({ ...form, arrears: e.target.value })} /></label>
+              <label>Fine (leave empty for none)<input type="number" min="0" step="0.01" value={form.fine} placeholder="0" onChange={(e) => setForm({ ...form, fine: e.target.value })} /></label>
+              <label>Fine reason (the student can see this)<input type="text" maxLength={200} value={form.fine_note} onChange={(e) => setForm({ ...form, fine_note: e.target.value })} placeholder="e.g. Late fee, lost book" /></label>
+              <label>Due date<input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} required /></label>
+              <div className="fx-row fx-row-total"><span>New total</span><strong>{money(editTotal)}</strong></div>
+            </div>
+            <div className="fx-foot">
+              <button type="button" className="fx-btn" onClick={() => setEditing(null)} disabled={saving}>Cancel</button>
+              <button type="submit" className="fx-btn fx-btn-primary" disabled={saving}>{saving ? "Saving..." : "Save changes"}</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
+function HistoryPanel({ payments, loading, classes, onReceipt, setError }) {
+  const [search, setSearch] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [status, setStatus] = useState("");
+  const [limit, setLimit] = useState(25);
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return [...payments]
+      .sort((a, b) => String(b.month || b.due_date).localeCompare(String(a.month || a.due_date)) || b.id - a.id)
+      .filter((p) => {
+        if (classFilter && String(p.school_class) !== classFilter) return false;
+        if (status && computedStatus(p) !== status) return false;
+        if (!q) return true;
+        return [p.student_name, p.roll_no, p.challan_no, p.received_by_name].some((v) => String(v || "").toLowerCase().includes(q));
+      });
+  }, [payments, search, classFilter, status]);
+  return (
+    <section className="fx-card fx-table-card">
+      <div className="fx-table-head">
+        <div><h3>Fee history</h3><p>Every challan, with who received the payment</p></div>
+        <div className="fx-table-tools">
+          <input type="search" placeholder="Search student, challan, receiver..." value={search} onChange={(e) => { setSearch(e.target.value); setLimit(25); }} />
+          <ClassSelect classes={classes} value={classFilter} onChange={setClassFilter} />
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            <option value="paid">Paid</option>
+            <option value="pending">Pending</option>
+            <option value="overdue">Overdue</option>
+            <option value="carried">Carried</option>
+          </select>
+        </div>
+      </div>
+      <div className="fx-scroll">
+        <table className="fx-table">
+          <thead>
+            <tr>
+              <th>Challan</th><th>Student</th><th>Class</th><th>Month</th><th className="r">Total</th>
+              <th>Status</th><th>Paid on</th><th>Received by</th><th />
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan={9} className="fx-empty">Loading...</td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan={9} className="fx-empty">No challans match.</td></tr>}
+            {!loading && rows.slice(0, limit).map((p) => {
+              const st = computedStatus(p);
+              return (
+                <tr key={p.id} className={st === "carried" ? "fx-muted-row" : ""}>
+                  <td className="fx-id">{p.challan_no}</td>
+                  <td><strong>{titleCase(p.student_name)}</strong><small className="fx-sub">{p.roll_no}</small></td>
+                  <td>{p.class_label || "-"}</td>
+                  <td>{p.month_label || fmtShort(p.due_date)}</td>
+                  <td className="r fx-amt">{money(p.total)}</td>
+                  <td><span className={"fx-pill fx-" + st}>{STATUS_LABEL[st]}</span></td>
+                  <td>{p.paid_on ? fmtDay(p.paid_on) : "-"}</td>
+                  <td>{st === "paid" ? p.received_by_name || "-" : "-"}</td>
+                  <td>
+                    <div className="fx-row-actions">
+                      {st === "paid" && <button type="button" className="fx-btn-line" onClick={() => onReceipt(p)}>Print</button>}
+                      <button type="button" className="fx-btn-line" onClick={() => getPdf(p, setError)}><Ico name="pdf" size={15} /> PDF</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > limit && (
+        <div className="fx-more"><button type="button" className="fx-btn" onClick={() => setLimit(limit + 50)}>Show more ({rows.length - limit} left)</button></div>
+      )}
+    </section>
+  );
+}
+
+const STATUS_LABEL = { paid: "Paid", pending: "Pending", overdue: "Overdue", unbilled: "No fee set", carried: "Carried to next challan" };
 const TABS = [
   ["all", "All students"],
   ["paid", "Paid"],
@@ -41,6 +344,7 @@ const ICONS = {
   calendar: "M5 5h14v15H5zM5 10h14M9 3v4M15 3v4",
   receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6",
   trend: "M3 17l6-6 4 4 8-8M15 7h6v6",
+  pdf: "M6 3h9l4 4v14H6zM14 3v5h5M9 14h6M9 17h4",
   download: "M12 4v11M7 11l5 5 5-5M5 20h14",
   plus: "M12 5v14M5 12h14",
 };
@@ -55,7 +359,12 @@ function Ico({ name, size = 20 }) {
 }
 
 export default function FeeManagement() {
-  const { session } = useAuth();
+  const { session, role } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const section = SECTIONS.some(([k]) => k === params.get("tab")) ? params.get("tab") : "overview";
+  const isAdmin = role === "admin";
+  const defaultName = session?.fullName || session?.username || "";
+  const goSection = (k) => setParams(k === "overview" ? {} : { tab: k });
   const displayName = titleCase(session?.user?.first_name || session?.user?.username || session?.username || "");
 
   const [payments, setPayments] = useState([]);
@@ -73,7 +382,7 @@ export default function FeeManagement() {
 
   // collecting = { student, payment } — payment is null for a student with no fee record yet.
   const [collecting, setCollecting] = useState(null);
-  const [collectForm, setCollectForm] = useState({ amount: "", due_date: todayStr() });
+  const [collectForm, setCollectForm] = useState({ amount: "", due_date: todayStr(), received_by_name: "", paid_on: todayStr() });
   const [saving, setSaving] = useState(false);
   const [receipt, setReceipt] = useState(null);
 
@@ -112,7 +421,8 @@ export default function FeeManagement() {
     const pendStudents = new Set();
     const overStudents = new Set();
     for (const p of payments) {
-      const amt = Number(p.amount || 0);
+      if (p.status === "carried") continue;
+      const amt = Number(p.total ?? p.amount ?? 0);
       const st = computedStatus(p);
       if (st === "paid") { collected += amt; paidN += 1; }
       else if (st === "overdue") { overdue += amt; overN += 1; overStudents.add(p.student); }
@@ -146,7 +456,7 @@ export default function FeeManagement() {
     for (const p of payments) {
       if (p.status !== "paid") continue;
       const key = String(p.paid_on || p.due_date || "").slice(0, 7);
-      if (index.has(key)) bars[index.get(key)].value += Number(p.amount || 0);
+      if (index.has(key)) bars[index.get(key)].value += Number(p.total ?? p.amount ?? 0);
     }
     return { bars, max: Math.max(0, ...bars.map((b) => b.value)) };
   }, [payments, months]);
@@ -156,6 +466,7 @@ export default function FeeManagement() {
     const byStudent = new Map();
     for (const p of payments) {
       const existing = byStudent.get(p.student);
+      if (p.status === "carried") continue;
       if (!existing || String(p.due_date) > String(existing.due_date)) byStudent.set(p.student, p);
     }
     return students.map((s) => ({ student: s, payment: byStudent.get(s.id) || null }));
@@ -209,10 +520,11 @@ export default function FeeManagement() {
 
   function openCollect(row) {
     setCollecting(row);
+    const extra = { received_by_name: defaultName, paid_on: todayStr() };
     setCollectForm(
       row.payment
-        ? { amount: String(row.payment.amount), due_date: row.payment.due_date }
-        : { amount: "", due_date: todayStr() }
+        ? { amount: String(row.payment.amount), due_date: row.payment.due_date, ...extra }
+        : { amount: "", due_date: todayStr(), ...extra }
     );
     setError("");
   }
@@ -224,11 +536,12 @@ export default function FeeManagement() {
   async function submitCollect(e) {
     e.preventDefault();
     if (!collecting) return;
+    const vals = { received_by_name: (collectForm.received_by_name || "").trim(), paid_on: collectForm.paid_on };
     setSaving(true); setError("");
     try {
       let updated;
       if (collecting.payment) {
-        updated = await api.updateFee(collecting.payment.id, { status: "paid" });
+        updated = await api.updateFee(collecting.payment.id, { status: "paid", ...vals });
       } else {
         if (!collectForm.amount || !collectForm.due_date) {
           setError("Enter an amount and due date.");
@@ -240,6 +553,7 @@ export default function FeeManagement() {
           amount: collectForm.amount,
           due_date: collectForm.due_date,
           status: "paid",
+          ...vals,
         });
       }
       setPayments((list) => [updated, ...list.filter((p) => p.id !== updated.id)]);
@@ -318,6 +632,22 @@ export default function FeeManagement() {
       {error && <div className="fx-alert fx-err">{error}</div>}
       {notice && <div className="fx-alert fx-ok">{notice}</div>}
 
+      <nav className="fx-sections" aria-label="Fee sections">
+        {SECTIONS.map(([k, label]) => (
+          <button key={k} type="button" className={section === k ? "on" : ""} onClick={() => goSection(k)}>{label}</button>
+        ))}
+      </nav>
+
+      {section === "pending" && (
+        <PendingPanel classes={classes} isAdmin={isAdmin} defaultName={defaultName}
+          setError={setError} setNotice={setNotice} onChanged={load} />
+      )}
+      {section === "history" && (
+        <HistoryPanel payments={payments} loading={loading} classes={classes} onReceipt={setReceipt} setError={setError} />
+      )}
+      {section === "structure" && <FeeStructurePanel />}
+
+      {section === "overview" && (<>
       <div className="fx-topbar">
         <span className="fx-eyebrow">FEE MANAGEMENT</span>
         <div className="fx-top-actions">
@@ -484,6 +814,7 @@ export default function FeeManagement() {
           </table>
         </div>
       </section>
+      </>)}
 
       {collecting && (
         <div className="fx-overlay" onClick={() => !saving && setCollecting(null)}>
@@ -495,7 +826,7 @@ export default function FeeManagement() {
               {collecting.payment ? (
                 <>
                   <div className="fx-row"><span>Due Date</span><strong>{collecting.payment.due_date}</strong></div>
-                  <div className="fx-row fx-row-total"><span>Amount Due</span><strong>{money(collecting.payment.amount)}</strong></div>
+                  <div className="fx-row fx-row-total"><span>Amount Due</span><strong>{money(collecting.payment.total ?? collecting.payment.amount)}</strong></div>
                 </>
               ) : (
                 <div className="fx-form" style={{ marginTop: 8 }}>
@@ -510,6 +841,16 @@ export default function FeeManagement() {
                   </label>
                 </div>
               )}
+              <div className="fx-form" style={{ marginTop: 8 }}>
+                <label>Received by (name)
+                  <input type="text" value={collectForm.received_by_name} required placeholder="Who took the money"
+                    onChange={(e) => setCollectForm({ ...collectForm, received_by_name: e.target.value })} />
+                </label>
+                <label>Paid on
+                  <input type="date" value={collectForm.paid_on} max={todayStr()} required
+                    onChange={(e) => setCollectForm({ ...collectForm, paid_on: e.target.value })} />
+                </label>
+              </div>
             </div>
             <div className="fx-foot">
               <button type="button" className="fx-btn" onClick={() => setCollecting(null)} disabled={saving}>Cancel</button>
@@ -593,6 +934,17 @@ const css = `
 .fx-alert { padding: 10px 16px; border-radius: 10px; margin-bottom: 16px; font-size: 14px; }
 .fx-err { background: #fdecea; color: #b3261e; }
 .fx-ok { background: #e6f4ea; color: #1e7e34; }
+.fx-sections { display: flex; gap: 6px; margin-bottom: 18px; overflow-x: auto; border-bottom: 1px solid #e3e7ed; }
+.fx-sections button { padding: 10px 16px; border: 0; border-bottom: 3px solid transparent; background: none; font: inherit; font-size: 15px; font-weight: 700; color: #5d6b7a; cursor: pointer; white-space: nowrap; }
+.fx-sections button.on { color: #0fb3b8; border-bottom-color: #0fb3b8; }
+.fx-hint { margin: 0; font-size: 14px; color: #5d6b7a; max-width: 640px; }
+.fx-table th.r, .fx-table td.r { text-align: right; }
+.fx-sub { display: block; font-size: 12px; color: #94a0ad; white-space: normal; max-width: 160px; }
+.fx-sm { padding: 2px 8px; font-size: 11px; margin-left: 4px; }
+.fx-carried { background: #eef0f3; color: #6b7684; }
+.fx-muted-row td { opacity: .6; }
+.fx-more { padding: 14px; text-align: center; border-top: 1px solid #eef0f3; }
+@media (max-width: 640px) { .fx-table th, .fx-table td { padding: 12px 12px; } .fx-table-head, .fx-chart { padding-left: 16px; padding-right: 16px; } .fx-table-tools input { min-width: 0; width: 100%; } .fx-tabs { padding: 0 8px; } }
 .fx-topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .fx-eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .14em; color: #0fb3b8; }
 .fx-top-actions { display: flex; flex-wrap: wrap; gap: 10px; }

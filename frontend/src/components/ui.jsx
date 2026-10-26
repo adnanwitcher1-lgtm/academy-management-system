@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
 
@@ -7,7 +7,7 @@ export function Logo({ size = 44, className = "" }) {
   return (
     <img
       src="/keen-logo.png"
-      alt="Keen Evening Coaching"
+      alt="KEEN EVENING COACHING"
       width={size}
       height={size}
       className={`rounded-full shrink-0 ${className}`}
@@ -51,6 +51,24 @@ const NAV = [
     label: "Student Dashboard",
     roles: ["student"],
     icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
+  },
+  {
+    to: "/student/fees",
+    label: "My Fees",
+    roles: ["student"],
+    icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z",
+  },
+  {
+    to: "/student/results",
+    label: "My Results",
+    roles: ["student"],
+    icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+  },
+  {
+    to: "/student/profile",
+    label: "My Profile",
+    roles: ["student"],
+    icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
   },
   {
     to: "/exams",
@@ -164,11 +182,19 @@ export function NotificationBell() {
   const [showAll, setShowAll] = useState(false);
   const boxRef = useRef(null);
 
+  const navigate = useNavigate();
+
   const load = async () => {
-    if (typeof api.listAnnouncements !== "function") return;
     try {
-      const data = await api.listAnnouncements();
-      setItems(Array.isArray(data) ? data : data?.results ?? []);
+      const [ann, inbox] = await Promise.all([
+        typeof api.listAnnouncements === "function" ? api.listAnnouncements().catch(() => []) : [],
+        typeof api.inbox === "function" ? api.inbox().catch(() => ({ results: [] })) : { results: [] },
+      ]);
+      const a = (Array.isArray(ann) ? ann : ann?.results ?? []).map((x) => ({ ...x, _src: "announcement" }));
+      const b = (inbox?.results ?? []).map((x) => ({ ...x, _src: "inbox" }));
+      setItems(
+        [...a, ...b].sort((x, y) => new Date(y.created_at || 0).getTime() - new Date(x.created_at || 0).getTime())
+      );
     } catch {
       /* keep the bell quiet if the request fails */
     }
@@ -192,11 +218,18 @@ export function NotificationBell() {
   const unread = items.filter((n) => !n.is_read).length;
   const shown = showAll ? items : items.slice(0, 5);
 
+  const sameItem = (x, n) => x.id === n.id && x._src === n._src;
+
   const markOne = async (n) => {
+    if (n.link) {
+      setOpen(false);
+      navigate(n.link);
+    }
     if (n.is_read) return;
-    setItems((list) => list.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+    setItems((list) => list.map((x) => (sameItem(x, n) ? { ...x, is_read: true } : x)));
     try {
-      if (typeof api.markAnnouncementRead === "function") await api.markAnnouncementRead(n.id);
+      if (n._src === "inbox") await api.inboxRead(n.id);
+      else if (typeof api.markAnnouncementRead === "function") await api.markAnnouncementRead(n.id);
     } catch {
       load();
     }
@@ -205,7 +238,10 @@ export function NotificationBell() {
   const markAll = async () => {
     setItems((list) => list.map((x) => ({ ...x, is_read: true })));
     try {
-      if (typeof api.markAllAnnouncementsRead === "function") await api.markAllAnnouncementsRead();
+      await Promise.all([
+        typeof api.inboxReadAll === "function" ? api.inboxReadAll() : null,
+        typeof api.markAllAnnouncementsRead === "function" ? api.markAllAnnouncementsRead() : null,
+      ]);
     } catch {
       load();
     }
@@ -232,7 +268,7 @@ export function NotificationBell() {
         <div className="absolute right-0 top-14 z-50 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-keen-border bg-white shadow-2xl">
           <div className="flex items-center justify-between border-b border-keen-border bg-slate-50/60 px-4 py-3">
             <div>
-              <p className="text-sm font-extrabold text-keen-charcoal">Announcements</p>
+              <p className="text-sm font-extrabold text-keen-charcoal">Notifications</p>
               <p className="text-[11px] text-keen-muted">
                 {unread ? unread + " unread" : "You're all caught up"}
               </p>
@@ -251,12 +287,12 @@ export function NotificationBell() {
           <div className="max-h-96 overflow-y-auto">
             {shown.length === 0 ? (
               <p className="p-8 text-center text-xs font-medium text-keen-muted">
-                No announcements yet.
+                No notifications yet.
               </p>
             ) : (
               shown.map((n) => (
                 <button
-                  key={n.id}
+                  key={n._src + n.id}
                   type="button"
                   onClick={() => markOne(n)}
                   className={
@@ -295,7 +331,7 @@ export function NotificationBell() {
               onClick={() => setShowAll((v) => !v)}
               className="w-full border-t border-keen-border px-4 py-3 text-center text-xs font-bold text-[#0AA9D4] hover:bg-slate-50"
             >
-              {showAll ? "Show fewer" : "View all announcements"}
+              {showAll ? "Show fewer" : "View all notifications"}
             </button>
           )}
         </div>
@@ -308,8 +344,9 @@ export function AppShell({ badge, title, subtitle, action, children }) {
   const { session, logout, role } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const initials = (session?.username || "?").slice(0, 2).toUpperCase();
-  const showBell = role === "teacher" || role === "student";
+  const shownName = session?.fullName || session?.username || "";
+  const initials = (shownName || "?").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const showBell = ["teacher", "student", "admin", "hod", "staff"].includes(role);
   const items = NAV.filter(
     (item) => !item.roles || item.roles.includes(role)
   );
@@ -359,7 +396,7 @@ export function AppShell({ badge, title, subtitle, action, children }) {
 
           <div className="min-w-0">
             <p className="text-lg font-extrabold leading-tight tracking-tight text-white">
-              Keen Academy
+              KEEN EVENING COACHING
             </p>
 
             <p className="min-w-0 text-[10px] font-bold uppercase tracking-widest text-keen-cyan">
@@ -485,7 +522,7 @@ export function AppShell({ badge, title, subtitle, action, children }) {
 
             <div className="min-w-0 leading-tight">
               <p className="truncate text-sm font-bold text-white">
-                {session?.username}
+                {shownName}
               </p>
 
               <p className="truncate text-xs capitalize text-slate-400">
@@ -534,7 +571,7 @@ export function AppShell({ badge, title, subtitle, action, children }) {
           </button>
 
           <span className="ml-3 text-sm font-extrabold text-keen-charcoal">
-            Keen Academy
+            KEEN EVENING COACHING
           </span>
 
           {showBell && (

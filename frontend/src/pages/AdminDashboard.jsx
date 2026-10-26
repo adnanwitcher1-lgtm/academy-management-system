@@ -185,6 +185,80 @@ function Donut({ pending, done }) {
     </div>
   );
 }
+function FinanceSection({ f }) {
+  const net = Number(f.net || 0);
+  const loss = f.is_loss;
+  const maxBar = Math.max(1, ...f.months.map((m) => Math.max(m.income, m.expenses)));
+  const tile = (label, value, tone, hint) => (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div className="text-xs font-semibold text-slate-400">{label}</div>
+      <div className={`text-2xl font-extrabold ${tone}`}>{value}</div>
+      {hint && <div className="text-xs text-slate-400">{hint}</div>}
+    </div>
+  );
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+        {tile(`Income (${f.month_label})`, money(f.income), "text-emerald-600", "Fees received this month")}
+        {tile("Expenses", money(f.expenses), "text-slate-800", "Rent, bills, other")}
+        <div className={`rounded-xl border px-4 py-3 ${loss ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
+          <div className="text-xs font-semibold text-slate-500">{loss ? "Loss" : "Profit"}</div>
+          <div className={`text-2xl font-extrabold ${loss ? "text-rose-600" : "text-emerald-600"}`}>{money(Math.abs(net))}</div>
+          <div className="text-xs text-slate-500">Income minus expenses</div>
+        </div>
+        {tile("Pending fees", money(f.pending_total), "text-amber-600", `${f.pending_students} student(s)`)}
+        {tile("Overdue", money(f.overdue_total), "text-rose-600", "Past the 10th")}
+        {tile("Collection rate", `${f.collection_rate}%`, "text-slate-800", `${money(f.collected_of_billed)} of ${money(f.billed_this_month)}`)}
+      </div>
+      <div className="grid gap-5 xl:grid-cols-3">
+        <Card title="Income vs expenses (6 months)" className="xl:col-span-2">
+          <div className="flex h-56 items-end gap-3">
+            {f.months.map((m) => (
+              <div key={m.month} className="flex flex-1 flex-col items-center gap-1" title={`${m.month}: income ${money(m.income)}, expenses ${money(m.expenses)}`}>
+                <div className="flex h-48 w-full items-end justify-center gap-1">
+                  <div className="w-1/3 rounded-t bg-emerald-500" style={{ height: `${(m.income / maxBar) * 100}%` }} />
+                  <div className="w-1/3 rounded-t bg-slate-400" style={{ height: `${(m.expenses / maxBar) * 100}%` }} />
+                </div>
+                <span className={`text-[11px] font-semibold ${m.net < 0 ? "text-rose-500" : "text-slate-400"}`}>{m.month}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex gap-4 text-xs text-slate-500">
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />Income</span>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-slate-400" />Expenses</span>
+            <span>Monthly salaries: {money(f.salaries_monthly)} · New admissions this month: {f.new_admissions}</span>
+          </div>
+        </Card>
+        <Card title="Top defaulters" to="/fees?tab=pending" right={<Link to="/fees?tab=pending" className="text-xs font-bold text-cyan-700">Pending fees</Link>}>
+          {f.top_defaulters.length === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-400">No pending fees. 🎉</p>
+          ) : (
+            <ul className="divide-y divide-slate-100 text-sm">
+              {f.top_defaulters.map((d) => (
+                <li key={d.student} className="flex items-center justify-between py-2">
+                  <div>
+                    <div className="font-semibold text-slate-700">{d.student}</div>
+                    <div className="text-xs text-slate-400">{d.class_label}</div>
+                  </div>
+                  <span className="font-bold text-rose-600">{money(d.outstanding)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {f.expense_categories.length > 0 && (
+            <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
+              <div className="mb-1 font-semibold text-slate-400">Expenses this month</div>
+              {f.expense_categories.map((c) => (
+                <div key={c.category} className="flex justify-between"><span>{c.category}</span><span>{money(c.amount)}</span></div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -253,6 +327,7 @@ export default function AdminDashboard() {
       }
     >
     <div className="space-y-6">
+      {data.finance && <FinanceSection f={data.finance} />}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {miniStats.map(([label, value, to]) => (
           <Link key={label} to={to} className="rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-cyan-300 hover:shadow-md">

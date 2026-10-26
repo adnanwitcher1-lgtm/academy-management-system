@@ -23,6 +23,7 @@ class StudentRoster(models.Model):
 
     roll_no = models.CharField(max_length=30, unique=True)
     full_name = models.CharField(max_length=150)
+    father_name = models.CharField(max_length=150, blank=True)
     class_name = models.CharField(max_length=50)
     section = models.CharField(max_length=10, blank=True)
     school_class = models.ForeignKey(
@@ -31,6 +32,8 @@ class StudentRoster(models.Model):
     date_of_birth = models.DateField(null=True, blank=True)
     cnic_or_bform = models.CharField(max_length=30, blank=True)
     phone_number = models.CharField(max_length=20, blank=True)
+    # This student's own monthly fee. Empty = use the fee set for their class.
+    monthly_fee = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     activation_code = models.CharField(max_length=10, blank=True)
     source = models.CharField(max_length=10, choices=Source.choices, default=Source.ADMIN)
     is_claimed = models.BooleanField(default=False)

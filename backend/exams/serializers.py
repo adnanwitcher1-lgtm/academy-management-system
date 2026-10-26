@@ -19,7 +19,7 @@ class MarkSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     exam_name = serializers.CharField(source="exam.name", read_only=True)
     exam_date = serializers.DateField(source="exam.date", read_only=True)
-    student_name = serializers.CharField(source="student.get_full_name", read_only=True)
+    student_name = serializers.SerializerMethodField()
     percentage = serializers.ReadOnlyField()
 
     class Meta:
@@ -29,6 +29,10 @@ class MarkSerializer(serializers.ModelSerializer):
             "obtained_marks", "total_marks", "percentage", "date", "entered_by", "updated_at",
         ]
         read_only_fields = ["entered_by", "updated_at"]
+
+    def get_student_name(self, obj):
+        from accounts.serializers import display_name
+        return display_name(obj.student)
 
     def validate_subject(self, subject):
         request = self.context["request"]

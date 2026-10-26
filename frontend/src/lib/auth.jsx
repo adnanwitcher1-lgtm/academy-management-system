@@ -18,6 +18,7 @@ export function AuthProvider({ children }) {
           refresh: data.refresh,
           role: data.role,
           username: data.username,
+          fullName: data.full_name,
           mustChangePassword: data.must_change_password,
         };
         saveSession(next);

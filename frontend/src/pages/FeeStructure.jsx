@@ -113,6 +113,11 @@ export function FeeStructurePanel() {
           </div>
         </div>
 
+        <p className="fst-note">
+          Note: an individual student can have their own monthly fee, set when you enrol them on the Students page.
+          That personal fee overrides the class fee below. Students without one are billed the class fee.
+        </p>
+
         {loading && <p className="fst-muted">Loading classes...</p>}
         {!loading && rows.length === 0 && (
           <p className="fst-muted">No classes exist yet. Add them on the Classes page first.</p>
@@ -173,7 +178,7 @@ export function FeeStructurePanel() {
         )}
 
         <p className="fst-next">
-          <a href="/fees?tab=dues">See dues and generate challans</a>
+          <a href="/fees?tab=pending">See pending fees and generate challans</a>
         </p>
       </div>
     </>
@@ -182,6 +187,7 @@ export function FeeStructurePanel() {
 
 const css = `
 .fst { --fst-line: #d9dfe6; --fst-muted: #5d6b7a; --fst-accent: #1f4e8c; max-width: 820px; }
+.fst-note { margin: 0 0 16px; padding: 10px 14px; border-radius: 8px; background: #e8fafa; color: #0a6f73; font-size: .9rem; }
 .fst-muted { color: var(--fst-muted); }
 .fst-msg { padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; font-size: .95rem; }
 .fst-err { background: #fdecea; color: #b3261e; }

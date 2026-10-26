@@ -466,7 +466,7 @@ export default function MarksEntry() {
         <section className={card + " mr-print-area p-6 sm:p-10"}>
           <div className="border-b-2 border-keen-charcoal pb-5 text-center">
             <img src="/keen-logo.png" alt="" width="56" height="56" className="mx-auto mb-2 rounded-full" />
-            <h2 className="text-2xl font-extrabold uppercase tracking-wide text-keen-charcoal">KEEN Evening Coaching</h2>
+            <h2 className="text-2xl font-extrabold uppercase tracking-wide text-keen-charcoal">KEEN EVENING COACHING</h2>
             <p className="mt-1 text-sm font-semibold text-keen-muted">
               {exam ? exam.name : "Examination"} · {subject ? subjectName(subject) : "Subject"}
               {classOf(subject || {}) ? " · " + classOf(subject) : ""}

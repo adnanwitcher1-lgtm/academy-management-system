@@ -30,6 +30,7 @@ class AttendanceEntry(models.Model):
         ABSENT = "absent", "Absent"
         LATE = "late", "Late"
         LEAVE = "leave", "Leave"
+        HOLIDAY = "holiday", "Holiday"
 
     student = models.ForeignKey(
         "accounts.User",
@@ -86,3 +87,17 @@ class TeacherAttendance(models.Model):
 
     def __str__(self):
         return f"{self.teacher} {self.date} {self.status}"
+
+
+class Holiday(models.Model):
+    """A day the academy is closed. Every student is marked "holiday" for it automatically.
+    Sundays are always closed (see attendance/holidays.py), so they need no row here."""
+
+    date = models.DateField(unique=True)
+    title = models.CharField(max_length=100)
+
+    class Meta:
+        ordering = ["date"]
+
+    def __str__(self):
+        return f"{self.date} {self.title}"

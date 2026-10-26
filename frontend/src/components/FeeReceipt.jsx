@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { downloadPdf, pdfPaths } from "../lib/api";
 // Change this to your real logo. If it's in src/assets, use:
 //   import logo from "../assets/logo.png";  and set LOGO = logo
 // If it's in the public folder, use a path like "/logo.png".
@@ -7,7 +9,14 @@ const money = (n) => "Rs " + Number(n).toLocaleString("en-PK", { maximumFraction
 
 export default function FeeReceipt({ payment, status, onClose }) {
   const paid = status === "paid";
-  const receiptNo = "KA-" + String(payment.id).padStart(5, "0");
+  const [pdfBusy, setPdfBusy] = useState(false);
+  async function pdf() {
+    setPdfBusy(true);
+    try { await downloadPdf(pdfPaths.feeSlip(payment.id), (payment.challan_no || "fee-slip") + ".pdf"); }
+    catch (e) { alert(e.message); }
+    finally { setPdfBusy(false); }
+  }
+  const receiptNo = payment.challan_no || "FEE-" + String(payment.id).padStart(5, "0");
 
   return (
     <div className="fr-overlay" onClick={onClose}>
@@ -19,6 +28,9 @@ export default function FeeReceipt({ payment, status, onClose }) {
             <button type="button" className="fr-btn" onClick={() => window.print()}>
               Print
             </button>
+            <button type="button" className="fr-btn" disabled={pdfBusy} onClick={pdf}>
+              {pdfBusy ? "Preparing..." : "Download PDF"}
+            </button>
             <button type="button" className="fr-btn fr-btn-light" onClick={onClose}>
               Close
             </button>
@@ -28,9 +40,9 @@ export default function FeeReceipt({ payment, status, onClose }) {
         <div className="fr-scroll">
           <div className="fr-sheet">
             <div className="fr-head">
-              <img src={LOGO} alt="Keen Academy" className="fr-logo" />
+              <img src={LOGO} alt="KEEN EVENING COACHING" className="fr-logo" />
               <div>
-                <h2>Keen Academy</h2>
+                <h2>KEEN EVENING COACHING</h2>
                 <p>Keep Education Ever Noble</p>
               </div>
               <div className="fr-title">
@@ -41,18 +53,16 @@ export default function FeeReceipt({ payment, status, onClose }) {
 
             <table className="fr-table">
               <tbody>
-                <tr>
-                  <th>Student</th>
-                  <td>{payment.student_name}</td>
-                </tr>
-                <tr>
-                  <th>Class</th>
-                  <td>{payment.class_label || "-"}</td>
-                </tr>
-                <tr>
-                  <th>Due Date</th>
-                  <td>{payment.due_date}</td>
-                </tr>
+                <tr><th>Student</th><td>{payment.student_name}</td></tr>
+                {payment.father_name && <tr><th>Father name</th><td>{payment.father_name}</td></tr>}
+                <tr><th>Roll no / Class</th><td>{payment.roll_no || "-"} / {payment.class_label || "-"}</td></tr>
+                {payment.month_label && <tr><th>For month</th><td>{payment.month_label}</td></tr>}
+                <tr><th>Due Date</th><td>{payment.due_date}</td></tr>
+                <tr><th>Monthly fee</th><td>{money(payment.amount)}</td></tr>
+                {Number(payment.arrears) > 0 && <tr><th>Previous dues (arrears)</th><td>{money(payment.arrears)}</td></tr>}
+                {Number(payment.fine) > 0 && (
+                  <tr><th>Fine</th><td>{money(payment.fine)}{payment.fine_note ? " (" + payment.fine_note + ")" : ""}</td></tr>
+                )}
                 <tr>
                   <th>Status</th>
                   <td>
@@ -61,9 +71,11 @@ export default function FeeReceipt({ payment, status, onClose }) {
                     </span>
                   </td>
                 </tr>
+                {paid && <tr><th>Paid on</th><td>{payment.paid_on || "-"}</td></tr>}
+                {paid && <tr><th>Received by</th><td>{payment.received_by_name || "-"}</td></tr>}
                 <tr className="fr-total">
-                  <th>Amount</th>
-                  <td>{money(payment.amount)}</td>
+                  <th>Total</th>
+                  <td>{money(payment.total ?? payment.amount)}</td>
                 </tr>
               </tbody>
             </table>
@@ -71,7 +83,7 @@ export default function FeeReceipt({ payment, status, onClose }) {
             <div className="fr-sign">
               <div>
                 <span />
-                Received by
+                Received by{paid && payment.received_by_name ? ": " + payment.received_by_name : ""}
               </div>
               <div>
                 <span />

@@ -23,6 +23,7 @@ import SchoolClasses from "./pages/SchoolClasses";
 import ClassesSubjects from "./pages/ClassesSubjects";
 import Subjects from "./pages/Subjects";
 import Exams from "./pages/Exams";
+import StudentProfile from "./pages/StudentProfile";
 
 function Protected({ allow, children }) {
   const { isAuthenticated, role } = useAuth();
@@ -155,6 +156,30 @@ export default function App() {
             element={
               <Protected allow={["teacher"]}>
                 <MyTasks />
+              </Protected>
+            }
+          />
+          <Route
+            path="/hod/students/:rosterId"
+            element={
+              <Protected allow={["hod", "admin", "staff"]}>
+                <StudentProfile />
+              </Protected>
+            }
+          />
+          <Route
+            path="/student/profile"
+            element={
+              <Protected allow={["student"]}>
+                <StudentProfile self />
+              </Protected>
+            }
+          />
+          <Route
+            path="/fees/pending"
+            element={
+              <Protected allow={["hod", "admin", "staff"]}>
+                <Navigate to="/fees?tab=pending" replace />
               </Protected>
             }
           />

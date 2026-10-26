@@ -292,7 +292,7 @@ export default function AddTeacher() {
       "Hello " +
       teacherName +
       ",\n\n" +
-      "Your Keen Academy teacher account has been created.\n\n" +
+      "Your KEEN EVENING COACHING teacher account has been created.\n\n" +
       "Username: " +
       created.username +
       "\n" +
@@ -300,7 +300,7 @@ export default function AddTeacher() {
       created.temporary_password +
       "\n\n" +
       "Please change your password after your first login.\n\n" +
-      "Regards,\nKeen Academy";
+      "Regards,\nKEEN EVENING COACHING";
 
     const url =
       "https://wa.me/" +

@@ -328,7 +328,7 @@ export default function Inquiries() {
         {printing && (
           <article className="iq-sheet">
             <header>
-              <h1>KEEN Evening Coaching</h1>
+              <h1>KEEN EVENING COACHING</h1>
               <p>Admission form</p>
             </header>
 

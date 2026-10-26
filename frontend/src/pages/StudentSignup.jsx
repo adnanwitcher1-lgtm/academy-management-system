@@ -62,7 +62,7 @@ export default function StudentSignup() {
           <Logo size={48} />
           <div>
             <h1 className="font-extrabold text-xs tracking-wider text-keen-charcoal">
-              KEEN EVENING
+              KEEN EVENING COACHING
             </h1>
             <p className="text-[9px] font-bold uppercase tracking-widest text-keen-cyanDark">
               Student sign up

@@ -24,8 +24,10 @@ export default function FeeStatusChart() {
   let paid = 0;
   let outstanding = 0;
   for (const p of payments) {
-    if (p.status === "paid") paid += Number(p.amount);
-    else outstanding += Number(p.amount);
+    if (p.status === "carried") continue; // already added into a newer challan as arrears
+    const t = Number(p.total ?? p.amount);
+    if (p.status === "paid") paid += t;
+    else outstanding += t;
   }
   const total = paid + outstanding;
   const paidPct = total > 0 ? (paid / total) * 100 : 0;

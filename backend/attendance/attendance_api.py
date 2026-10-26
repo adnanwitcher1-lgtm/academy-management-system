@@ -10,9 +10,11 @@ from rest_framework.views import APIView
 from academics.models import SchoolClass, Subject
 from accounts.models import StudentProfile, TeacherProfile
 
-from .models import AttendanceEntry, TeacherAttendance
+from .holidays import clear_holiday_rows, holiday_map, holiday_title, mark_holiday_for_students
+from .models import AttendanceEntry, Holiday, TeacherAttendance
 
-STATUSES = [c[0] for c in AttendanceEntry.Status.choices]
+# What a teacher or admin may mark by hand. "holiday" is only ever set automatically.
+STATUSES = ["present", "absent", "late", "leave"]
 TEACHER_STATUSES = [c[0] for c in TeacherAttendance.Status.choices]
 
 
@@ -52,18 +54,45 @@ def _read_day(raw):
 
 def _summary(statuses):
     out = {"present": 0, "absent": 0, "late": 0, "leave": 0}
+    holidays = 0
     for s in statuses:
         if s in out:
             out[s] += 1
+        elif s == "holiday":
+            holidays += 1
     total = sum(out.values())
     out["total"] = total
-    # Present and Late count as attended, out of every day that was marked.
+    # Holidays are shown but never count for or against a student.
+    out["holiday"] = holidays
+    # Present and Late count as attended, out of every working day that was marked.
     out["percent"] = round((out["present"] + out["late"]) * 100 / total) if total else None
     return out
 
 
+def _with_holidays(records, start, end, since):
+    """Add a "holiday" record for every closed day (Sunday or a Holiday row) that has no record yet."""
+    today = date.today()
+    first = max(d for d in (start, since) if d) if (start or since) else None
+    last = min(end, today) if end else today
+    if not first or first > last:
+        return records
+    have = {r["date"] for r in records}
+    extra = [
+        {"date": d.isoformat(), "weekday": d.strftime("%A"), "status": "holiday", "note": title, "marked_at": None, "marked_by": ""}
+        for d, title in holiday_map(first, last).items()
+        if d.isoformat() not in have
+    ]
+    for r in records:
+        if r["status"] == "holiday" and not r.get("note"):
+            r["note"] = holiday_title(date.fromisoformat(r["date"])) or ""
+    return sorted(records + extra, key=lambda r: r["date"], reverse=True)
+
+
 def _build_sheet(school_class, day):
     profiles = _class_students(school_class)
+    closed = holiday_title(day)
+    if closed:
+        mark_holiday_for_students(day, profiles)
     entries = {
         e.student_id: e
         for e in AttendanceEntry.objects.select_related("marked_by").filter(
@@ -83,13 +112,15 @@ def _build_sheet(school_class, day):
             }
         )
     summary = _summary([r["status"] for r in rows if r["status"]])
-    summary["unmarked"] = len(rows) - summary["total"]
+    summary["unmarked"] = len([r for r in rows if not r["status"]])
     latest = max(entries.values(), key=lambda e: e.marked_at) if entries else None
     return {
         "school_class": school_class.id,
         "class_label": str(school_class),
         "date": day.isoformat(),
         "weekday": day.strftime("%A"),
+        "is_holiday": bool(closed),
+        "holiday_title": closed or "",
         "students": rows,
         "summary": summary,
         "marked_at": latest.marked_at if latest else None,
@@ -151,6 +182,9 @@ class AttendanceSheetView(APIView):
             return _deny("Pick a valid date.", 400)
         if day > date.today():
             return _deny("You can't mark attendance for a future date.", 400)
+        closed = holiday_title(day)
+        if closed:
+            return _deny(f"{day.isoformat()} is a holiday ({closed}). Attendance is not taken on holidays.", 400)
         records = request.data.get("records")
         if not isinstance(records, list) or not records:
             return _deny("Mark at least one student.", 400)
@@ -261,6 +295,7 @@ class StudentAttendanceView(APIView):
             }
             for e in qs.order_by("-date")
         ]
+        records = _with_holidays(records, start, end, profile.roster_entry.created_at.date())
         return Response(
             {
                 "student": {
@@ -448,3 +483,49 @@ class TeacherAttendanceHistoryView(APIView):
             for t in TeacherProfile.objects.order_by("id")
         ]
         return Response({"teachers": rows})
+
+
+# ---------------------------------------------------------------------------
+# Holidays (added by the admin; every student is marked "holiday" automatically)
+# ---------------------------------------------------------------------------
+
+
+class HolidayListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        rows = [{"id": h.id, "date": h.date.isoformat(), "title": h.title} for h in Holiday.objects.all()]
+        return Response({"results": rows, "weekly_off": ["Sunday"]})
+
+    def post(self, request):
+        if request.user.role != "admin":
+            return _deny("Only the admin can add holidays.")
+        ok, day = _read_day(request.data.get("date"))
+        title = " ".join(str(request.data.get("title") or "").split())[:100]
+        if not ok or day is None:
+            return _deny("Pick a valid date.", 400)
+        if not title:
+            return _deny("Write what the holiday is, for example Eid ul Fitr.", 400)
+        if Holiday.objects.filter(date=day).exists():
+            return _deny("That date is already a holiday.", 400)
+        row = Holiday.objects.create(date=day, title=title)
+        filled = mark_holiday_for_students(day) if day <= date.today() else 0
+        return Response(
+            {"id": row.id, "date": day.isoformat(), "title": row.title, "students_marked": filled}, status=201
+        )
+
+
+class HolidayDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk):
+        if request.user.role != "admin":
+            return _deny("Only the admin can remove holidays.")
+        row = Holiday.objects.filter(pk=pk).first()
+        if not row:
+            return _deny("Holiday not found.", 404)
+        day = row.date
+        row.delete()
+        if not holiday_title(day):  # still closed if it is a Sunday
+            clear_holiday_rows(day)
+        return Response(status=204)

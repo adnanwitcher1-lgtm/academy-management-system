@@ -7,12 +7,22 @@ from .models import StudentRoster, StudentProfile, TeacherProfile
 User = get_user_model()
 
 
+def display_name(user):
+    """The name to show for a person: students are named in the roster, others on the user."""
+    profile = getattr(user, "student_profile", None)
+    entry = getattr(profile, "roster_entry", None) if profile else None
+    if entry and entry.full_name:
+        return entry.full_name
+    return user.get_full_name() or user.username
+
+
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         data["role"] = self.user.role
         data["username"] = self.user.username
         data["must_change_password"] = self.user.must_change_password
+        data["full_name"] = display_name(self.user)
         return data
 
 
@@ -106,9 +116,14 @@ class EnrollStudentRosterSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentRoster
         fields = [
-            "roll_no", "full_name", "class_name", "section", "school_class",
-            "date_of_birth", "cnic_or_bform", "phone_number", "activation_code", "password",
+            "roll_no", "full_name", "father_name", "class_name", "section", "school_class",
+            "date_of_birth", "cnic_or_bform", "phone_number", "monthly_fee", "activation_code", "password",
         ]
+
+    def validate_monthly_fee(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("The fee cannot be negative.")
+        return value
 
     def create(self, validated_data):
         password = validated_data.pop("password")
@@ -257,8 +272,8 @@ class StudentRosterManageSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentRoster
         fields = [
-            "id", "roll_no", "full_name", "class_name", "section", "school_class",
-            "date_of_birth", "cnic_or_bform", "phone_number", "activation_code",
+            "id", "roll_no", "full_name", "father_name", "class_name", "section", "school_class",
+            "date_of_birth", "cnic_or_bform", "phone_number", "monthly_fee", "activation_code",
             "source", "is_claimed", "created_at", "password", "username",
         ]
         read_only_fields = ["source", "is_claimed", "created_at"]
@@ -266,6 +281,11 @@ class StudentRosterManageSerializer(serializers.ModelSerializer):
     def get_username(self, obj):
         account = getattr(obj, "student_account", None)
         return account.user.username if account else None
+
+    def validate_monthly_fee(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("The fee cannot be negative.")
+        return value
 
     def update(self, instance, validated_data):
         password = validated_data.pop("password", "")

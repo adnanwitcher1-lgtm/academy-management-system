@@ -1,37 +1,52 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { AppShell } from "../components/ui";
+import { AppShell, Button, Modal, Notice, INPUT_CLS } from "../components/ui";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const ALL_ID = "__all__";
+const SHORT = { Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed", Thursday: "Thu", Friday: "Fri", Saturday: "Sat" };
+const CLASS_ORDER = ["pg-8th", "pre-9th", "9th", "10th", "1st year"];
+const ADDRESS = "Goal Park, Raheem Garden, Muzaffar colony street # 23";
+const UPDATED_KEY = "keen.timetable.updated";
+
 const asList = (d) => (Array.isArray(d) ? d : d?.results ?? []);
-const titleCase = (s) => (s || "").toLowerCase().replace(/(^|[\s.'-])([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
-const TONES = ["tone-teal", "tone-blue", "tone-violet", "tone-amber", "tone-rose", "tone-green"];
-const toneFor = (text) => {
-  let n = 0;
-  for (const ch of String(text || "")) n += ch.charCodeAt(0);
-  return TONES[n % TONES.length];
-};
-const todayName = () => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date().getDay()];
-const ICON_EDIT = "M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z";
-const ICON_TRASH = "M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6";
-function TtIcon({ d }) {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d={d} />
-    </svg>
-  );
-}
 const hhmm = (t) => (t || "").slice(0, 5);
+const titleCase = (s) => (s || "").toLowerCase().replace(/(^|[\s.'-])([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
+const cleanLabel = (s) => (s || "").replace(/\s*\([^)]*\)\s*$/, "");
 const fmtTime = (t) => {
   if (!t) return "";
   const [h, m] = t.split(":");
   const hh = Number(h);
   return (hh % 12 || 12) + ":" + m + " " + (hh >= 12 ? "PM" : "AM");
 };
-
-// Turns the API's validation errors into one readable sentence.
+const classRank = (label) => {
+  const i = CLASS_ORDER.indexOf((label || "").toLowerCase());
+  return i < 0 ? 99 : i;
+};
+const sortClasses = (list) => [...list].sort((a, b) => classRank(a.label) - classRank(b.label) || a.label.localeCompare(b.label));
+const todayDay = () => {
+  const n = ["Sunday", ...DAYS][new Date().getDay()];
+  return DAYS.includes(n) ? n : "Monday";
+};
+const dmy = (d) => {
+  const p = (n) => String(n).padStart(2, "0");
+  return p(d.getDate()) + "-" + p(d.getMonth() + 1) + "-" + d.getFullYear();
+};
+const readUpdated = () => {
+  try {
+    const v = localStorage.getItem(UPDATED_KEY);
+    return v ? dmy(new Date(v)) : dmy(new Date());
+  } catch {
+    return dmy(new Date());
+  }
+};
+const markUpdated = () => {
+  try {
+    localStorage.setItem(UPDATED_KEY, new Date().toISOString());
+  } catch {
+    /* ignore */
+  }
+};
 const messageOf = (err) => {
   const p = err && err.payload;
   if (p && typeof p === "object") {
@@ -45,16 +60,6 @@ const messageOf = (err) => {
   return (err && err.message) || "Something went wrong. Try again.";
 };
 
-const EMPTY = { school_class: "", subject: "", day_of_week: "Monday", start_time: "", end_time: "", room: "" };
-const fromSlot = (s) => ({
-  school_class: String(s.school_class),
-  subject: String(s.subject),
-  day_of_week: s.day_of_week,
-  start_time: hhmm(s.start_time),
-  end_time: hhmm(s.end_time),
-  room: s.room || "",
-});
-
 function periodsOf(list) {
   const seen = new Map();
   for (const s of list) {
@@ -66,580 +71,601 @@ function periodsOf(list) {
   return [...seen.values()].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
 }
 
-function slotsAt(list, period, day) {
-  return list.filter(
-    (s) => s.day_of_week === day && hhmm(s.start_time) === period.start && hhmm(s.end_time) === period.end
+function CellText({ slots }) {
+  if (!slots.length) return null;
+  const subjects = [...new Set(slots.map((s) => (s.subject_name || "").toUpperCase()))];
+  const teachers = [...new Set(slots.map((s) => titleCase(s.teacher_name)).filter(Boolean))];
+  const rooms = [...new Set(slots.map((s) => s.room).filter(Boolean))];
+  return (
+    <>
+      <div className="tt-sub">{subjects.join(" / ")}</div>
+      <div className="tt-tch">{teachers.length ? teachers.join(", ") : "No teacher yet"}</div>
+      {rooms.length > 0 && <div className="tt-room">Room {rooms.join(", ")}</div>}
+    </>
   );
 }
 
-function CellActions({ s, busyId, onEdit, onDelete }) {
-  return (
-    <div className="tt-actions tt-noprint">
-      <button type="button" className="tt-icon" title="Edit lecture" aria-label={"Edit " + s.subject_name} disabled={busyId === s.id} onClick={() => onEdit(s)}>
-        <TtIcon d={ICON_EDIT} />
-      </button>
-      <button type="button" className="tt-icon tt-icon-del" title="Delete lecture" aria-label={"Delete " + s.subject_name} disabled={busyId === s.id} onClick={() => onDelete(s)}>
-        <TtIcon d={ICON_TRASH} />
-      </button>
-    </div>
-  );
-}
 
-function TimetableSheet({ title, slots, canEdit, role, busyId, onEdit, onDelete }) {
-  const periods = periodsOf(slots);
+function Grid({ cols, rows, slotsFor, onCell, editable }) {
   return (
-    <div className="tt-sheet">
-      <div className="tt-print-head">
-        <h1>KEEN Evening Coaching</h1>
-        <p>Weekly timetable{title ? ": " + title : ""}</p>
-      </div>
-      <div className="tt-wrap">
-        <table className="tt-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              {DAYS.map((d) => (
-                <th key={d} className={d === todayName() ? "tt-today" : ""}>{d}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {periods.map((p) => (
-              <tr key={p.key}>
-                <th scope="row" className="tt-time">
-                  <span className="tt-start">{fmtTime(p.start)}</span>
-                  <span className="tt-end">{fmtTime(p.end)}</span>
-                </th>
-                {DAYS.map((day) => (
-                  <td key={day} className={day === todayName() ? "tt-today-col" : ""}>
-                    {slotsAt(slots, p, day).map((s) => (
-                      <div key={s.id} className={"tt-cell " + toneFor(s.subject_name)}>
-                        <div className="tt-cell-main">
-                          <div className="tt-subject">{s.subject_name}</div>
-                          <div className="tt-teacher">
-                            {role === "teacher" ? s.class_label : s.teacher_name ? titleCase(s.teacher_name) : "No teacher yet"}
-                          </div>
-                          {s.room && <span className="tt-room">Room {s.room}</span>}
-                        </div>
-                        {canEdit && <CellActions s={s} busyId={busyId} onEdit={onEdit} onDelete={onDelete} />}
-                      </div>
-                    ))}
+    <div className="tt-wrap">
+      <table className="tt-table">
+        <thead>
+          <tr>
+            <th className="tt-timeh">Time</th>
+            {cols.map((c) => (
+              <th key={c.key}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={p.key}>
+              <th scope="row" className="tt-time">
+                {fmtTime(p.start)} - {fmtTime(p.end)}
+              </th>
+              {cols.map((c) => {
+                const slots = slotsFor(p, c);
+                const inner = <CellText slots={slots} />;
+                return (
+                  <td key={c.key} className={editable ? "tt-edit" : ""}>
+                    {editable ? (
+                      <button
+                        type="button"
+                        className="tt-cellbtn"
+                        onClick={() => onCell(c, p, slots)}
+                        aria-label={(slots.length ? "Edit " : "Add to ") + c.label + " " + p.start}
+                      >
+                        {inner || <span className="tt-plus tt-noprint">+</span>}
+                      </button>
+                    ) : (
+                      inner
+                    )}
                   </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-// One master sheet: a row per class, a column per day, lectures listed by time inside each cell.
-function AllClassesSheet({ groups, canEdit, busyId, onEdit, onDelete }) {
+function Sheet({ sub, updated, children }) {
   return (
-    <div className="tt-sheet tt-master">
-      <div className="tt-print-head">
-        <h1>KEEN Evening Coaching</h1>
-        <p>Weekly timetable: All classes</p>
+    <section className="tt-sheet">
+      <div className="tt-phead">
+        <div className="tt-bism" dir="rtl" lang="ar">
+          بِسْمِ ٱللَّٰهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
+        </div>
+        <div className="tt-titlerow">
+          <img src="/keen-logo.png" alt="" className="tt-logo" />
+          <h1>KEEN EVENING COACHING</h1>
+          <img src="/keen-logo.png" alt="" className="tt-logo" />
+        </div>
+        <div className="tt-ttl">Time Table{sub ? " - " + sub : ""}</div>
       </div>
-      <div className="tt-wrap">
-        <table className="tt-table tt-master-table">
-          <thead>
-            <tr>
-              <th>Class</th>
-              {DAYS.map((d) => (
-                <th key={d} className={d === todayName() ? "tt-today" : ""}>{d}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map((g) => (
-              <tr key={g.cls.id}>
-                <th scope="row" className="tt-time tt-classname">{g.cls.label}</th>
-                {DAYS.map((day) => {
-                  const daySlots = g.slots
-                    .filter((s) => s.day_of_week === day)
-                    .sort((a, b) => hhmm(a.start_time).localeCompare(hhmm(b.start_time)));
-                  return (
-                    <td key={day} className={day === todayName() ? "tt-today-col" : ""}>
-                      {daySlots.map((s) => (
-                        <div key={s.id} className={"tt-cell " + toneFor(s.subject_name)}>
-                          <div className="tt-mtime">
-                            {fmtTime(hhmm(s.start_time))} - {fmtTime(hhmm(s.end_time))}
-                          </div>
-                          <div className="tt-subject">{s.subject_name}</div>
-                          <div className="tt-teacher">
-                            {s.teacher_name ? titleCase(s.teacher_name) : "No teacher yet"}
-                            {s.room ? " \u00b7 Room " + s.room : ""}
-                          </div>
-                          {canEdit && <CellActions s={s} busyId={busyId} onEdit={onEdit} onDelete={onDelete} />}
-                        </div>
-                      ))}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {children}
+      <div className="tt-pfoot">
+        <div>
+          <b>Address:</b> {ADDRESS}
+        </div>
+        <div>
+          <b>Updated on:</b> {updated}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }
 
 export default function Timetable() {
   const { role } = useAuth();
-  const canEdit = role !== "teacher" && role !== "student";
+  const isAdmin = role !== "teacher" && role !== "student";
 
   const [options, setOptions] = useState({ classes: [], subjects: [] });
-  const [classId, setClassId] = useState("");
   const [slots, setSlots] = useState([]);
-  const [loadingBase, setLoadingBase] = useState(canEdit);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [busyId, setBusyId] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [updated, setUpdated] = useState(readUpdated());
+  const [day, setDay] = useState(todayDay()); // a day name or "week"
+  const [extra, setExtra] = useState({}); // day -> [{key,start,end}] empty rows added locally
+  const [newRow, setNewRow] = useState({ start: "", end: "" });
 
-  const [modal, setModal] = useState(null); // "add" | "edit" | null
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(EMPTY);
-  const [saving, setSaving] = useState(false);
+  const [cell, setCell] = useState(null);
+  const [copy, setCopy] = useState(null);
+  const [busy, setBusy] = useState(false);
   const [perror, setPerror] = useState("");
-  const reqRef = useRef(0);
 
-  useEffect(() => {
-    if (!canEdit) return;
-    let alive = true;
-    api
-      .listTimetableOptions()
-      .then((data) => {
-        if (!alive) return;
-        const classes = data.classes || [];
-        setOptions({ classes, subjects: data.subjects || [] });
-        if (classes.length) setClassId(String(classes[0].id));
-      })
-      .catch((e) => alive && setError(messageOf(e)))
-      .finally(() => alive && setLoadingBase(false));
-    return () => {
-      alive = false;
-    };
-  }, [canEdit]);
-
-  const loadSlots = useCallback(async () => {
-    if (canEdit && !classId) {
-      setSlots([]);
-      return;
-    }
-    const id = ++reqRef.current;
-    setLoadingSlots(true);
-    setError("");
+  const load = useCallback(async () => {
     try {
-      let data;
-      if (canEdit && classId === ALL_ID) {
-        const results = await Promise.all(options.classes.map((c) => api.listTimetable(String(c.id))));
-        data = results.flatMap((r) => asList(r));
-      } else {
-        data = await api.listTimetable(canEdit ? classId : "");
-      }
-      if (id === reqRef.current) setSlots(asList(data));
-    } catch (e) {
-      if (id === reqRef.current) setError(messageOf(e));
-    } finally {
-      if (id === reqRef.current) setLoadingSlots(false);
-    }
-  }, [canEdit, classId, options.classes]);
-
-  useEffect(() => {
-    loadSlots();
-  }, [loadSlots]);
-
-  const classesWithSlots = useMemo(() => {
-    if (!canEdit || classId !== ALL_ID) return null;
-    const bySlot = new Map();
-    for (const s of slots) {
-      const key = String(s.school_class);
-      if (!bySlot.has(key)) bySlot.set(key, []);
-      bySlot.get(key).push(s);
-    }
-    return options.classes
-      .map((c) => ({ cls: c, slots: bySlot.get(String(c.id)) || [] }))
-      .filter((g) => g.slots.length > 0);
-  }, [canEdit, classId, slots, options.classes]);
-
-  const selectedClass = options.classes.find((c) => String(c.id) === classId);
-  const printLabel = canEdit
-    ? selectedClass?.label || ""
-    : role === "teacher"
-    ? "My timetable"
-    : slots[0]?.class_label || "";
-
-  // ---- popup ----
-  const formSubjects = options.subjects.filter((s) => String(s.school_class) === String(form.school_class));
-  const ready = form.school_class && form.subject && form.day_of_week && form.start_time && form.end_time;
-  const dirty =
-    modal === "edit" && editing
-      ? JSON.stringify(form) !== JSON.stringify(fromSlot(editing))
-      : JSON.stringify({ ...form, school_class: "" }) !== JSON.stringify({ ...EMPTY, school_class: "" });
-
-  const setF = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
-
-  function openAdd() {
-    setForm({ ...EMPTY, school_class: classId === ALL_ID ? "" : classId });
-    setEditing(null);
-    setPerror("");
-    setModal("add");
-  }
-
-  function openEdit(s) {
-    setForm(fromSlot(s));
-    setEditing(s);
-    setPerror("");
-    setModal("edit");
-  }
-
-  function closeNow() {
-    setModal(null);
-    setEditing(null);
-    setForm(EMPTY);
-    setPerror("");
-  }
-
-  function close() {
-    if (dirty && !window.confirm("Discard your changes? What you typed will be lost.")) return;
-    closeNow();
-  }
-
-  async function save() {
-    if (!ready || saving) return;
-    setSaving(true);
-    setPerror("");
-    setNotice("");
-    try {
-      const body = {
-        school_class: Number(form.school_class),
-        subject: Number(form.subject),
-        day_of_week: form.day_of_week,
-        start_time: form.start_time,
-        end_time: form.end_time,
-        room: form.room.trim(),
-      };
-      if (modal === "edit") await api.updateTimetableSlot(editing.id, body);
-      else await api.createTimetableSlot(body);
-      const verb = modal === "edit" ? "Saved changes to the" : "Added the";
-      closeNow();
-      if (classId !== ALL_ID && String(body.school_class) !== classId) {
-        setClassId(String(body.school_class));
-      } else {
-        await loadSlots();
-      }
-      setNotice(verb + " lecture on " + body.day_of_week + ".");
-    } catch (e) {
-      setPerror(messageOf(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function remove(s) {
-    const msg = "Delete " + s.subject_name + " on " + s.day_of_week + " at " + fmtTime(s.start_time) + "?";
-    if (!window.confirm(msg)) return;
-    setBusyId(s.id);
-    setError("");
-    setNotice("");
-    try {
-      await api.deleteTimetableSlot(s.id);
-      setSlots((list) => list.filter((x) => x.id !== s.id));
-      setNotice("Deleted the lecture.");
+      const data = await api.listTimetable("");
+      setSlots(asList(data));
     } catch (e) {
       setError(messageOf(e));
     } finally {
-      setBusyId(null);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    if (!isAdmin) return undefined;
+    let alive = true;
+    api
+      .listTimetableOptions()
+      .then((d) => alive && setOptions({ classes: d.classes || [], subjects: d.subjects || [] }))
+      .catch((e) => alive && setError(messageOf(e)));
+    return () => {
+      alive = false;
+    };
+  }, [load, isAdmin]);
+
+  const classes = useMemo(() => {
+    if (isAdmin) return sortClasses(options.classes);
+    const m = new Map();
+    for (const s of slots) m.set(s.school_class, { id: s.school_class, label: s.class_label });
+    return sortClasses([...m.values()]);
+  }, [isAdmin, options.classes, slots]);
+
+  const week = day === "week";
+  const daySlots = useMemo(() => slots.filter((s) => s.day_of_week === day), [slots, day]);
+  const dayCols = classes.map((c) => ({ key: String(c.id), label: c.label, id: c.id }));
+  const singleClass = !isAdmin && classes.length === 1;
+
+  const slotsAt = (list, p, pred) =>
+    list.filter((s) => hhmm(s.start_time) === p.start && hhmm(s.end_time) === p.end && pred(s));
+
+  const rowsFor = (d, list) => {
+    const rows = periodsOf(list);
+    const keys = new Set(rows.map((r) => r.key));
+    for (const e of extra[d] || []) if (!keys.has(e.key)) rows.push(e);
+    return rows.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+  };
+
+  async function afterChange(msg) {
+    markUpdated();
+    setUpdated(readUpdated());
+    await load();
+    setNotice(msg);
+  }
+
+  const subjectsOf = (classId) => options.subjects.filter((s) => String(s.school_class) === String(classId));
+
+  function openCell({ classId, dayName, period, existing }) {
+    setPerror("");
+    setNotice("");
+    setCell({
+      classId: String(classId || ""),
+      days: [dayName],
+      start: period ? period.start : "",
+      end: period ? period.end : "",
+      room: existing.find((s) => s.room)?.room || "",
+      subjectIds: existing.map((s) => s.subject),
+      orig:
+        period && existing.length
+          ? { day: dayName, start: period.start, end: period.end, subjectIds: existing.map((s) => s.subject), room: existing.find((s) => s.room)?.room || "" }
+          : null,
+    });
+  }
+
+  const toggleIn = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+  async function saveCell() {
+    const c = cell;
+    if (!c.classId) return setPerror("Pick a class.");
+    if (!c.subjectIds.length) return setPerror("Pick at least one subject.");
+    if (!c.start || !c.end) return setPerror("Pick the start and end time.");
+    if (!c.days.length) return setPerror("Pick at least one day.");
+    setBusy(true);
+    setPerror("");
+    const moved = c.orig && (c.orig.start !== c.start || c.orig.end !== c.end);
+    try {
+      if (moved) {
+        await api.deleteTimetableCell({ school_class: Number(c.classId), days: [c.orig.day], start_time: c.orig.start, end_time: c.orig.end });
+      }
+      try {
+        await api.setTimetableCell({
+          school_class: Number(c.classId),
+          days: c.days.length === 6 ? "all" : c.days,
+          start_time: c.start,
+          end_time: c.end,
+          subject_ids: c.subjectIds,
+          room: c.room || "",
+        });
+      } catch (e) {
+        if (moved) {
+          try {
+            await api.setTimetableCell({ school_class: Number(c.classId), days: [c.orig.day], start_time: c.orig.start, end_time: c.orig.end, subject_ids: c.orig.subjectIds, room: c.orig.room || "" });
+          } catch {
+            /* best effort restore */
+          }
+        }
+        throw e;
+      }
+      setCell(null);
+      await afterChange("Saved " + (c.days.length === 6 ? "for all days" : "for " + c.days.map((d) => SHORT[d]).join(", ")) + ".");
+    } catch (e) {
+      setPerror(messageOf(e));
+    } finally {
+      setBusy(false);
     }
   }
 
-  const title = canEdit ? "Timetables" : role === "teacher" ? "My timetable" : "My class timetable";
-  const subtitle = canEdit
-    ? "Weekly lectures for each class."
-    : role === "teacher"
-    ? "Your lectures for the week."
-    : "Your class's lectures for the week.";
+  async function deleteCell() {
+    const c = cell;
+    const cls = classes.find((x) => String(x.id) === c.classId);
+    const where = c.days.length === 6 ? "all days" : c.days.join(", ");
+    if (!window.confirm("Delete " + (cls?.label || "this") + " lecture(s) at " + fmtTime(c.start) + " - " + fmtTime(c.end) + " on " + where + "?")) return;
+    setBusy(true);
+    setPerror("");
+    try {
+      await api.deleteTimetableCell({ school_class: Number(c.classId), days: c.days, start_time: c.start, end_time: c.end });
+      setCell(null);
+      await afterChange("Cell deleted.");
+    } catch (e) {
+      setPerror(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyDay() {
+    if (!copy.to.length) return setPerror("Pick at least one day to copy to.");
+    if (!window.confirm("Copy " + day + " to " + copy.to.join(", ") + "? The lectures already on those days will be replaced.")) return;
+    setBusy(true);
+    setPerror("");
+    try {
+      await api.copyTimetableDay({ from_day: day, to_days: copy.to });
+      setCopy(null);
+      await afterChange(day + " copied to " + copy.to.map((d) => SHORT[d]).join(", ") + ".");
+    } catch (e) {
+      setPerror(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearDay() {
+    if (!window.confirm("Clear ALL lectures of " + day + " for every class? This cannot be undone.")) return;
+    setError("");
+    setNotice("");
+    try {
+      await api.clearTimetableDay({ day });
+      setExtra((x) => ({ ...x, [day]: [] }));
+      await afterChange(day + " cleared.");
+    } catch (e) {
+      setError(messageOf(e));
+    }
+  }
+
+  function addRow() {
+    if (!newRow.start || !newRow.end) return setError("Pick the start and end time of the new row.");
+    if (newRow.end <= newRow.start) return setError("End time must be after the start time.");
+    setError("");
+    const key = newRow.start + "-" + newRow.end;
+    setExtra((x) => ({ ...x, [day]: [...(x[day] || []), { key, start: newRow.start, end: newRow.end }] }));
+    setNewRow({ start: "", end: "" });
+  }
+
+  const title = isAdmin ? "Timetable" : role === "teacher" ? "My timetable" : "My class timetable";
+  const subtitle = isAdmin
+    ? "KEEN EVENING COACHING weekly timetable. Sunday is the weekly off."
+    : "Your lectures for the week. Sunday is closed.";
+
+  const dayGrid = (d, editable) => {
+    const list = slots.filter((s) => s.day_of_week === d);
+    return (
+      <Grid
+        cols={dayCols}
+        rows={rowsFor(d, list)}
+        editable={editable}
+        slotsFor={(p, c) => slotsAt(list, p, (s) => s.school_class === c.id)}
+        onCell={(c, p, ex) => openCell({ classId: c.id, dayName: d, period: p, existing: ex })}
+      />
+    );
+  };
+
+  const noData = !loading && !slots.length && !isAdmin;
 
   return (
     <AppShell title={title} subtitle={subtitle}>
       <style>{css}</style>
       <div className="tt">
-        <div className="tt-top tt-noprint">
-          {canEdit && (
-            <label className="tt-pick">
-              Class
-              <select value={classId} onChange={(e) => setClassId(e.target.value)} disabled={loadingBase}>
-                {options.classes.length === 0 && <option value="">{loadingBase ? "Loading..." : "No classes"}</option>}
-                {options.classes.length > 0 && <option value={ALL_ID}>All classes</option>}
-                {options.classes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
+        <div className="tt-noprint space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="tt-days" role="tablist">
+              {DAYS.map((d) => (
+                <button key={d} type="button" role="tab" aria-selected={day === d} className={day === d ? "on" : ""} onClick={() => { setDay(d); setError(""); setNotice(""); }}>
+                  <span className="hidden sm:inline">{d}</span>
+                  <span className="sm:hidden">{SHORT[d]}</span>
+                </button>
+              ))}
+              <button type="button" role="tab" aria-selected={week} className={"tt-weekbtn " + (week ? "on" : "")} onClick={() => { setDay("week"); setError(""); setNotice(""); }}>
+                Full week
+              </button>
+            </div>
+            <Button variant="secondary" onClick={() => window.print()} disabled={!slots.length}>
+              Print
+            </Button>
+          </div>
+
+          {isAdmin && !week && (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="text-xs text-keen-muted">
+                  New row from
+                  <input type="time" className="tt-time-in" value={newRow.start} onChange={(e) => setNewRow({ ...newRow, start: e.target.value })} />
+                </label>
+                <label className="text-xs text-keen-muted">
+                  to
+                  <input type="time" className="tt-time-in" value={newRow.end} onChange={(e) => setNewRow({ ...newRow, end: e.target.value })} />
+                </label>
+                <Button variant="secondary" onClick={addRow}>+ Add time row</Button>
+              </div>
+              <div className="ml-auto flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => { setPerror(""); setCopy({ to: [] }); }} disabled={!daySlots.length}>
+                  Copy this day to...
+                </Button>
+                <Button variant="danger" onClick={clearDay} disabled={!daySlots.length}>
+                  Clear this day
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <Notice>{error}</Notice>
+          <Notice tone="success">{notice}</Notice>
+        </div>
+
+        {loading && <p className="mt-4 text-sm text-keen-muted">Loading timetable...</p>}
+        {noData && (
+          <p className="mt-4 text-sm text-keen-muted">
+            {role === "student" ? "No timetable has been published for your class yet." : "No lectures have been scheduled for you yet."}
+          </p>
+        )}
+
+        {!loading && !noData && (
+          <div className="tt-screen mt-4">
+            {!week && (
+              <Sheet sub={day} updated={updated}>
+                {dayGrid(day, isAdmin)}
+              </Sheet>
+            )}
+            {week && singleClass && (
+              <Sheet sub={classes[0].label} updated={updated}>
+                <Grid
+                  cols={DAYS.map((d) => ({ key: d, label: d }))}
+                  rows={periodsOf(slots)}
+                  editable={false}
+                  slotsFor={(p, c) => slotsAt(slots, p, (s) => s.day_of_week === c.key)}
+                />
+              </Sheet>
+            )}
+            {week && !singleClass &&
+              DAYS.filter((d) => isAdmin || slots.some((s) => s.day_of_week === d)).map((d) => (
+                <Sheet key={d} sub={d} updated={updated}>
+                  {slots.some((s) => s.day_of_week === d) || extra[d]?.length ? (
+                    dayGrid(d, isAdmin)
+                  ) : (
+                    <p className="tt-empty">Nothing scheduled on {d} yet.</p>
+                  )}
+                </Sheet>
+              ))}
+          </div>
+        )}
+      </div>
+
+      <Modal
+        open={!!cell}
+        title={cell?.orig ? "Edit time slot" : "Add time slot"}
+        subtitle="Pick the subjects, time and days. Teachers show next to each subject."
+        onClose={() => !busy && setCell(null)}
+        footer={
+          cell && (
+            <>
+              {cell.orig && (
+                <Button variant="danger" onClick={deleteCell} disabled={busy} className="mr-auto">
+                  Delete cell
+                </Button>
+              )}
+              <Button variant="secondary" onClick={() => setCell(null)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button onClick={saveCell} disabled={busy}>
+                {busy ? "Saving..." : "Save"}
+              </Button>
+            </>
+          )
+        }
+      >
+        {cell && (
+          <div className="space-y-5 text-sm">
+            <Notice>{perror}</Notice>
+
+            <label className="block">
+              <span className="tt-lbl">Class</span>
+              <select
+                className={INPUT_CLS}
+                value={cell.classId}
+                disabled={!!cell.orig}
+                onChange={(e) => setCell({ ...cell, classId: e.target.value, subjectIds: [] })}
+              >
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
                 ))}
               </select>
             </label>
-          )}
-          <div className="tt-top-actions">
-            <button type="button" className="tt-print" onClick={() => window.print()} disabled={slots.length === 0}>
-              Print timetable
-            </button>
-            {canEdit && (
-              <button type="button" className="tt-add" onClick={openAdd} disabled={options.classes.length === 0}>
-                + Add Lecture
-              </button>
-            )}
-          </div>
-        </div>
 
-        {error && (
-          <div className="tt-msg tt-err tt-noprint" role="alert">
-            {error}
-          </div>
-        )}
-        {notice && (
-          <div className="tt-msg tt-ok tt-noprint" role="status">
-            {notice}
-          </div>
-        )}
-
-        {canEdit && !loadingBase && options.classes.length === 0 && (
-          <p className="tt-muted">No classes exist yet. Add them on the Classes page first.</p>
-        )}
-        {loadingSlots && <p className="tt-muted">Loading timetable...</p>}
-        {!loadingSlots && classId !== ALL_ID && slots.length === 0 && (canEdit ? !!classId : true) && !error && (
-          <p className="tt-muted">
-            {canEdit
-              ? "No lectures are scheduled for this class yet. Click Add Lecture to start."
-              : role === "teacher"
-              ? "No lectures have been scheduled for you yet."
-              : "No timetable has been published for your class yet."}
-          </p>
-        )}
-        {!loadingSlots && classId === ALL_ID && classesWithSlots && classesWithSlots.length === 0 && !error && (
-          <p className="tt-muted">No lectures are scheduled for any class yet.</p>
-        )}
-
-        {classId === ALL_ID && classesWithSlots && classesWithSlots.length > 0 && (
-          <AllClassesSheet
-            groups={classesWithSlots}
-            canEdit={canEdit}
-            busyId={busyId}
-            onEdit={openEdit}
-            onDelete={remove}
-          />
-        )}
-
-        {classId !== ALL_ID && slots.length > 0 && (
-          <TimetableSheet
-            title={printLabel}
-            slots={slots}
-            canEdit={canEdit}
-            role={role}
-            busyId={busyId}
-            onEdit={openEdit}
-            onDelete={remove}
-          />
-        )}
-
-        {modal && (
-          <div className="tt-backdrop" role="dialog" aria-modal="true" aria-labelledby="tt-modal-title">
-            <div className="tt-modal">
-              <div className="tt-modal-head">
-                <div>
-                  <h2 id="tt-modal-title">{modal === "edit" ? "Edit Lecture" : "Add Lecture"}</h2>
-                  <p>{modal === "edit" ? "Update the lecture details below" : "Fill in the lecture details below"}</p>
-                </div>
-                <button type="button" className="tt-x" onClick={close} aria-label="Close">
-                  &times;
-                </button>
-              </div>
-
-              <div className="tt-modal-body">
-                {perror && (
-                  <div className="tt-msg tt-err wide" role="alert">
-                    {perror}
-                  </div>
+            <div>
+              <span className="tt-lbl">Subjects (pick one or more)</span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {subjectsOf(cell.classId).map((s) => (
+                  <label key={s.id} className={"tt-check " + (cell.subjectIds.includes(s.id) ? "on" : "")}>
+                    <input
+                      type="checkbox"
+                      checked={cell.subjectIds.includes(s.id)}
+                      onChange={() => setCell({ ...cell, subjectIds: toggleIn(cell.subjectIds, s.id) })}
+                    />
+                    <span>
+                      <b className="uppercase">{cleanLabel(s.label)}</b>
+                      <small>{s.teacher_name ? titleCase(s.teacher_name) : "No teacher yet"}</small>
+                    </span>
+                  </label>
+                ))}
+                {subjectsOf(cell.classId).length === 0 && (
+                  <p className="text-keen-muted">This class has no subjects yet.</p>
                 )}
+              </div>
+            </div>
 
-                <label className="tt-field">
-                  <span className="lbl">
-                    Class <span className="req">*</span>
-                  </span>
-                  <select
-                    value={form.school_class}
-                    onChange={(e) => setForm((f) => ({ ...f, school_class: e.target.value, subject: "" }))}
-                  >
-                    <option value="">Select a class</option>
-                    {options.classes.map((c) => (
-                      <option key={c.id} value={String(c.id)}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
+            <div>
+              <span className="tt-lbl">Time slot</span>
+              <div className="grid grid-cols-2 gap-3">
+                <label>
+                  <small className="text-keen-muted">Start</small>
+                  <input type="time" className={INPUT_CLS} value={cell.start} onChange={(e) => setCell({ ...cell, start: e.target.value })} />
                 </label>
-
-                <label className="tt-field">
-                  <span className="lbl">
-                    Subject <span className="req">*</span>
-                  </span>
-                  <select value={form.subject} onChange={setF("subject")} disabled={!form.school_class}>
-                    <option value="">{form.school_class ? "Select a subject" : "Pick a class first"}</option>
-                    {formSubjects.map((s) => (
-                      <option key={s.id} value={String(s.id)}>
-                        {s.label + (s.teacher_name ? " - " + s.teacher_name : " - no teacher yet")}
-                      </option>
-                    ))}
-                  </select>
-                  {form.school_class && formSubjects.length === 0 && (
-                    <span className="hint">This class has no subjects yet. Add them on the Classes and Subjects page.</span>
-                  )}
-                </label>
-
-                <label className="tt-field">
-                  <span className="lbl">
-                    Day <span className="req">*</span>
-                  </span>
-                  <select value={form.day_of_week} onChange={setF("day_of_week")}>
-                    {DAYS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="tt-field">
-                  <span className="lbl">Room</span>
-                  <input value={form.room} onChange={setF("room")} placeholder="e.g. 3" />
-                </label>
-
-                <label className="tt-field">
-                  <span className="lbl">
-                    Start time <span className="req">*</span>
-                  </span>
-                  <input type="time" value={form.start_time} onChange={setF("start_time")} />
-                </label>
-
-                <label className="tt-field">
-                  <span className="lbl">
-                    End time <span className="req">*</span>
-                  </span>
-                  <input type="time" value={form.end_time} onChange={setF("end_time")} />
+                <label>
+                  <small className="text-keen-muted">End</small>
+                  <input type="time" className={INPUT_CLS} value={cell.end} onChange={(e) => setCell({ ...cell, end: e.target.value })} />
                 </label>
               </div>
+              {periodsOf(slots).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {periodsOf(slots).map((p) => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      className="tt-chip"
+                      onClick={() => setCell({ ...cell, start: p.start, end: p.end })}
+                    >
+                      {fmtTime(p.start)} - {fmtTime(p.end)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-              <div className="tt-modal-foot">
-                <button type="button" className="tt-cancel" onClick={close}>
-                  Cancel
+            <label className="block">
+              <span className="tt-lbl">Room (optional)</span>
+              <input className={INPUT_CLS} value={cell.room} maxLength={30} onChange={(e) => setCell({ ...cell, room: e.target.value })} placeholder="e.g. Room 2" />
+            </label>
+
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="tt-lbl !mb-0">Apply to days</span>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-keen-cyanDark hover:underline"
+                  onClick={() => setCell({ ...cell, days: cell.days.length === 6 ? [cell.orig?.day || (day === "week" ? "Monday" : day)] : [...DAYS] })}
+                >
+                  {cell.days.length === 6 ? "Only one day" : "All days"}
                 </button>
-                <button type="button" className="tt-submit" onClick={save} disabled={!ready || saving}>
-                  {saving ? "Saving..." : modal === "edit" ? "Save Changes" : "Add Lecture"}
-                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {DAYS.map((d) => (
+                  <label key={d} className={"tt-check tt-daycheck " + (cell.days.includes(d) ? "on" : "")}>
+                    <input type="checkbox" checked={cell.days.includes(d)} onChange={() => setCell({ ...cell, days: toggleIn(cell.days, d) })} />
+                    <span>{SHORT[d]}</span>
+                  </label>
+                ))}
               </div>
             </div>
           </div>
         )}
-      </div>
+      </Modal>
+
+      <Modal
+        open={!!copy}
+        title={"Copy " + (day === "week" ? "" : day) + " to other days"}
+        subtitle="Every class's lectures of this day are copied. The target days are replaced."
+        onClose={() => !busy && setCopy(null)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCopy(null)} disabled={busy}>Cancel</Button>
+            <Button onClick={copyDay} disabled={busy}>{busy ? "Copying..." : "Copy"}</Button>
+          </>
+        }
+      >
+        {copy && (
+          <div className="space-y-4 text-sm">
+            <Notice>{perror}</Notice>
+            <div className="flex flex-wrap gap-2">
+              {DAYS.filter((d) => d !== day).map((d) => (
+                <label key={d} className={"tt-check tt-daycheck " + (copy.to.includes(d) ? "on" : "")}>
+                  <input type="checkbox" checked={copy.to.includes(d)} onChange={() => setCopy({ to: toggleIn(copy.to, d) })} />
+                  <span>{d}</span>
+                </label>
+              ))}
+            </div>
+            <button type="button" className="text-xs font-semibold text-keen-cyanDark hover:underline" onClick={() => setCopy({ to: DAYS.filter((d) => d !== day) })}>
+              Select all other days
+            </button>
+          </div>
+        )}
+      </Modal>
     </AppShell>
   );
 }
 
 const css = `
-.tt { --tt-line: #d9dfe6; --tt-muted: #5d6b7a; --tt-accent: #1f4e8c; }
-.tt-muted { color: var(--tt-muted); }
-.tt-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
-.tt-pick { display: flex; flex-direction: column; gap: 6px; font-size: .9rem; font-weight: 600; }
-.tt select, .tt input { padding: 8px 10px; font: inherit; font-weight: 400; border: 1px solid var(--tt-line); border-radius: 6px; background: #fff; }
-.tt-pick select { min-width: 200px; }
-.tt-top-actions { display: flex; gap: 10px; }
-.tt-add { padding: 10px 18px; font: inherit; font-weight: 700; color: #fff; background: #1e8e5a; border: 0; border-radius: 8px; cursor: pointer; }
-.tt-print { padding: 10px 18px; font: inherit; font-weight: 700; color: var(--tt-accent); background: #fff; border: 1px solid var(--tt-accent); border-radius: 8px; cursor: pointer; }
-.tt-add:disabled, .tt-print:disabled, .tt-submit:disabled { opacity: .55; cursor: not-allowed; }
-.tt select:focus-visible, .tt input:focus-visible, .tt button:focus-visible { outline: 2px solid var(--tt-accent); outline-offset: 2px; }
-.tt-msg { padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; font-size: .95rem; }
-.tt-err { background: #fdecea; color: #b3261e; }
-.tt-ok { background: #e7f4ec; color: #1e6b3a; }
-.tt-print-head { display: none; }
-.tt-wrap { overflow-x: auto; border: 1px solid var(--tt-line); border-radius: 8px; background: #fff; }
-.tt-table { width: 100%; min-width: 860px; border-collapse: collapse; table-layout: fixed; }
-.tt-table th, .tt-table td { padding: 10px; text-align: left; vertical-align: top; border: 1px solid var(--tt-line); }
-.tt-table thead th { background: #f6f8fa; font-size: .85rem; color: var(--tt-muted); }
-.tt-table .tt-time { width: 110px; background: #f6f8fa; font-size: .85rem; font-weight: 600; white-space: nowrap; }
-.tt-cell:last-child { margin-bottom: 0; }
-.tt-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, .5); }
-.tt-modal { display: flex; flex-direction: column; width: 100%; max-width: 640px; max-height: 90vh; background: #fff; border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, .3); }
-.tt-modal-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 24px 32px; border-bottom: 1px solid var(--tt-line); }
-.tt-modal-head h2 { margin: 0; font-size: 1.25rem; }
-.tt-modal-head p { margin: 4px 0 0; color: var(--tt-muted); font-size: .9rem; }
-.tt-x { background: none; border: 0; font-size: 1.7rem; line-height: 1; color: var(--tt-muted); cursor: pointer; }
-.tt-modal-body { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 24px 32px; overflow-y: auto; }
-.tt-modal-body .wide { grid-column: 1 / -1; }
-.tt-field { display: flex; flex-direction: column; gap: 6px; }
-.tt-field .lbl { font-size: .7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--tt-muted); }
-.tt-field .req { color: #d92d20; }
-.tt-field .hint { font-size: .75rem; color: var(--tt-muted); }
-.tt-modal-body select, .tt-modal-body input { width: 100%; padding: 10px 12px; background: #f6f8fa; }
-.tt-modal-foot { display: flex; justify-content: flex-end; gap: 12px; padding: 16px 32px; border-top: 1px solid var(--tt-line); }
-.tt-cancel { padding: 10px 18px; font: inherit; font-weight: 700; color: #1c2530; background: #fff; border: 1px solid var(--tt-line); border-radius: 8px; cursor: pointer; }
-.tt-submit { padding: 10px 20px; font: inherit; font-weight: 700; color: #fff; background: var(--tt-accent); border: 0; border-radius: 8px; cursor: pointer; }
-.tone-teal { --tone-bg: #e6f5f3; --tone-bar: #0f9488; }
-.tone-blue { --tone-bg: #e8f0fc; --tone-bar: #2563eb; }
-.tone-violet { --tone-bg: #f0ebfc; --tone-bar: #7c3aed; }
-.tone-amber { --tone-bg: #fdf3e1; --tone-bar: #d97706; }
-.tone-rose { --tone-bg: #fce9ee; --tone-bar: #e11d48; }
-.tone-green { --tone-bg: #e8f5ec; --tone-bar: #16a34a; }
-.tt-cell { position: relative; padding: 10px 12px; margin-bottom: 8px; background: var(--tone-bg, #eef4fb); border-left: 4px solid var(--tone-bar, #1f4e8c); border-radius: 8px; }
-.tt-subject { font-weight: 700; font-size: .95rem; color: #1c2530; }
-.tt-teacher { margin-top: 2px; font-size: .8rem; color: #475467; }
-.tt-room { display: inline-block; margin-top: 6px; padding: 2px 8px; font-size: .7rem; font-weight: 600; color: #475467; background: rgba(255, 255, 255, .75); border-radius: 999px; }
-.tt-actions { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
-.tt-cell:hover .tt-actions, .tt-cell:focus-within .tt-actions { opacity: 1; }
-@media (hover: none) { .tt-actions { opacity: 1; } }
-.tt-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; color: #475467; background: rgba(255, 255, 255, .92); border: 1px solid #d0d5dd; border-radius: 6px; cursor: pointer; }
-.tt-icon:hover { color: #1f4e8c; border-color: #1f4e8c; }
-.tt-icon-del:hover { color: #b3261e; border-color: #b3261e; }
-.tt-icon:disabled { opacity: .5; cursor: not-allowed; }
-.tt-start { display: block; font-weight: 700; color: #1c2530; }
-.tt-end { display: block; font-size: .8rem; font-weight: 400; color: #5d6b7a; }
-.tt-table thead th.tt-today { color: #1f4e8c; background: #e8f0fc; box-shadow: inset 0 -3px 0 #1f4e8c; }
-.tt-table td.tt-today-col { background: #fafcff; }
-
-/* All classes master sheet */
-.tt-master-table { min-width: 1100px; }
-.tt-master-table .tt-classname { width: 120px; white-space: normal; }
-.tt-master .tt-cell { padding: 6px 8px; margin-bottom: 6px; }
-.tt-mtime { font-size: .72rem; font-weight: 700; color: #1c2530; }
-.tt-master .tt-subject { font-size: .85rem; }
-.tt-master .tt-teacher { font-size: .72rem; }
-.tt-master .tt-actions { top: 4px; right: 4px; }
-
-@media (max-width: 560px) { .tt-modal-body { grid-template-columns: 1fr; } }
+.tt-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tt-days button { padding: 6px 14px; font-size: .8rem; font-weight: 600; color: #21262B; background: #fff; border: 1px solid #D9E2EC; border-radius: 999px; }
+.tt-days button.on { background: #00D9F5; border-color: #00D9F5; color: #14181B; }
+.tt-days .tt-weekbtn { border-color: #21262B; }
+.tt-days .tt-weekbtn.on { background: #21262B; border-color: #21262B; color: #fff; }
+.tt-time-in { display: block; margin-top: 2px; padding: 6px 8px; font-size: .85rem; color: #21262B; background: #fff; border: 1px solid #D9E2EC; border-radius: 8px; }
+.tt-sheet { background: #fff; border: 1px solid #D9E2EC; border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+.tt-phead { text-align: center; margin-bottom: 12px; }
+.tt-bism { font-size: 1.3rem; line-height: 1.5; color: #000; }
+.tt-titlerow { display: flex; align-items: center; justify-content: center; gap: 16px; }
+.tt-logo { height: 56px; width: auto; flex-shrink: 0; }
+.tt-phead h1 { margin: 0; font-size: clamp(1.2rem, 4vw, 2rem); font-weight: 900; letter-spacing: .03em; color: #000; }
+.tt-ttl { font-style: italic; font-size: 1.1rem; margin-top: 2px; color: #000; }
+.tt-pfoot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin-top: 12px; font-size: .85rem; color: #000; }
+.tt-empty { padding: 24px; text-align: center; font-size: .85rem; color: #5A6672; border: 1px dashed #D9E2EC; }
+.tt-wrap { overflow-x: auto; background: #fff; border: 1px solid #000; }
+.tt-table { width: 100%; min-width: 640px; border-collapse: collapse; table-layout: fixed; }
+.tt-table th, .tt-table td { border: 1px solid #000; text-align: center; vertical-align: middle; padding: 0; }
+.tt-table thead th { background: #000; color: #fff; padding: 10px 6px; font-size: .9rem; font-weight: 700; }
+.tt-table .tt-timeh { width: 150px; }
+.tt-table .tt-time { padding: 8px 6px; font-size: .8rem; font-weight: 700; background: #f3f4f6; color: #000; }
+.tt-table td { height: 64px; padding: 6px 4px; }
+.tt-table td.tt-edit { padding: 0; }
+.tt-cellbtn { display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; min-height: 64px; padding: 6px 4px; cursor: pointer; }
+.tt-cellbtn:hover { background: #E6FBFE; }
+.tt-plus { font-size: 1.2rem; color: #cbd5e1; }
+.tt-sub { font-size: .9rem; font-weight: 800; color: #000; text-transform: uppercase; line-height: 1.2; }
+.tt-tch { margin-top: 2px; font-size: .78rem; color: #21262B; line-height: 1.25; }
+.tt-room { margin-top: 2px; font-size: .7rem; font-style: italic; color: #5A6672; }
+.tt-lbl { display: block; margin-bottom: 6px; font-size: .7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #5A6672; }
+.tt-check { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #D9E2EC; border-radius: 10px; cursor: pointer; background: #fff; }
+.tt-check.on { border-color: #00B8D4; background: #E6FBFE; }
+.tt-check input { width: 16px; height: 16px; accent-color: #00B8D4; flex-shrink: 0; }
+.tt-check small { display: block; font-size: .72rem; color: #5A6672; }
+.tt-daycheck { padding: 6px 12px; }
+.tt-chip { padding: 3px 10px; font-size: .72rem; font-weight: 600; border: 1px solid #D9E2EC; border-radius: 999px; background: #fff; color: #21262B; }
+.tt-chip:hover { background: #E6FBFE; }
 
 @media print {
-  @page { size: A4 landscape; margin: 12mm; }
+  @page { size: A4 landscape; margin: 10mm; }
   body * { visibility: hidden; }
-  .tt-sheet, .tt-sheet * { visibility: visible; }
-  .tt-sheet { position: absolute; left: 0; top: 0; width: 100%; color: #1c2530; }
-  .tt-print-head { display: block; text-align: center; border-bottom: 2px solid #1c2530; padding-bottom: 8px; margin-bottom: 14px; }
-  .tt-print-head h1 { margin: 0; font-size: 1.4rem; }
-  .tt-print-head p { margin: 4px 0 0; }
-  .tt-noprint { display: none !important; }
+  .tt .tt-noprint, .tt-plus { display: none !important; }
+  .tt-screen, .tt-screen * { visibility: visible; }
+  .tt-screen { position: absolute; left: 0; top: 0; width: 100%; margin: 0 !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tt-sheet { border: 0; border-radius: 0; padding: 0; margin: 0; break-after: page; page-break-after: always; }
+  .tt-sheet:last-child { break-after: auto; page-break-after: auto; }
+  .tt-bism { font-size: 18pt; }
+  .tt-logo { height: 60px; }
+  .tt-phead h1 { font-size: 26pt; }
+  .tt-ttl { font-size: 15pt; }
   .tt-wrap { overflow: visible; border: 0; }
-  .tt-table { min-width: 0; font-size: 10pt; }
-  .tt-table thead th.tt-today { color: #5d6b7a; background: #f6f8fa; box-shadow: none; }
-  .tt-table td.tt-today-col { background: #fff; }
-  .tt-cell { background: #f3f3f3; border-left-color: #1c2530; }
-  .tt-room { background: #fff; border: 1px solid #ccc; }
-  .tt-master-table { min-width: 0; font-size: 8pt; }
-  .tt-master-table th, .tt-master-table td { padding: 4px 5px; }
-  .tt-master .tt-cell { padding: 3px 5px; margin-bottom: 3px; }
-  .tt-master .tt-subject { font-size: 8pt; }
-  .tt-master .tt-teacher, .tt-mtime { font-size: 7pt; }
-  .tt-master tr { break-inside: avoid; page-break-inside: avoid; }
+  .tt-table { min-width: 0; }
+  .tt-table td { height: 46px; }
+  .tt-cellbtn { min-height: 0; padding: 0; display: block; }
+  .tt-pfoot { font-size: 10pt; }
 }
 `;

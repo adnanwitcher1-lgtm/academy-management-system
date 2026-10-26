@@ -22,7 +22,11 @@ class TimetableSlot(models.Model):
         return f"{self.school_class} - {self.day_of_week} {_fmt(self.start_time)} to {_fmt(self.end_time)}"
 
     def clean(self):
-        """Used by the Django admin and by the API serializer, so both enforce the same rules."""
+        """Used by the Django admin and by the API serializer, so both enforce the same rules.
+
+        A class may have several subjects in the SAME time slot (for example BIO and COMP together),
+        but two different time slots of one class may not overlap, and a teacher cannot be in
+        two classes at once."""
         if not (self.school_class_id and self.subject_id and self.day_of_week and self.start_time and self.end_time):
             return
         if self.end_time <= self.start_time:
@@ -38,16 +42,20 @@ class TimetableSlot(models.Model):
         if self.pk:
             clashes = clashes.exclude(pk=self.pk)
 
-        same_class = clashes.filter(school_class_id=self.school_class_id).first()
-        if same_class:
-            raise ValidationError(
-                f"{same_class.school_class} already has {same_class.subject.name} from "
-                f"{_fmt(same_class.start_time)} to {_fmt(same_class.end_time)} on {self.day_of_week}."
-            )
+        for other in clashes.filter(school_class_id=self.school_class_id):
+            same_cell = other.start_time == self.start_time and other.end_time == self.end_time
+            if not same_cell:
+                raise ValidationError(
+                    f"{other.school_class} already has {other.subject.name} from "
+                    f"{_fmt(other.start_time)} to {_fmt(other.end_time)} on {self.day_of_week}, "
+                    "which overlaps this time. Use the same start and end time to add another subject to that slot."
+                )
+            if other.subject_id == self.subject_id:
+                raise ValidationError(f"{self.subject.name} is already in this slot.")
 
         teacher = self.subject.teacher
         if teacher:
-            busy = clashes.filter(subject__teacher_id=teacher.id).first()
+            busy = clashes.filter(subject__teacher_id=teacher.id).exclude(school_class_id=self.school_class_id).first()
             if busy:
                 name = teacher.get_full_name() or teacher.username
                 raise ValidationError(

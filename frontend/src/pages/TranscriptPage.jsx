@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, loadSession } from "../lib/api";
+import { api, downloadPdf, pdfPaths, loadSession } from "../lib/api";
 import { AppShell } from "../components/ui";
 
 const asList = (d) => (Array.isArray(d) ? d : d?.results ?? []);
@@ -26,6 +26,8 @@ export default function TranscriptPage() {
   const [subjectView, setSubjectView] = useState("all"); // __VIEW_PATCHED__
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -83,6 +85,19 @@ export default function TranscriptPage() {
   const obtained = rows.reduce((sum, m) => sum + Number(m.obtained_marks), 0);
   const outOf = rows.reduce((sum, m) => sum + Number(m.total_marks), 0);
   const pct = outOf > 0 ? (obtained / outOf) * 100 : 0;
+  async function downloadCard() {
+    const uid = userIdFromToken();
+    if (!examId || !uid || pdfBusy) return;
+    setPdfBusy(true);
+    setPdfError("");
+    try {
+      await downloadPdf(pdfPaths.reportCard(examId, uid), "result-card-" + examId + ".pdf");
+    } catch (e) {
+      setPdfError(e?.message || "Could not create the PDF.");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
   const studentName = rows[0]?.student_name || marks[0]?.student_name || "Student";
 
   return (
@@ -96,8 +111,7 @@ export default function TranscriptPage() {
         )}
         {loading && <p className="tx-muted">Loading results...</p>}
         {!loading && !error && marks.length === 0 && (<>
-          <p className="tx-muted">No marks have been published for you yet.</p>
-          {diag && <p className="tx-muted">Debug: API returned {diag.total} marks, none match your id ({String(diag.uid)}). Marks belong to student ids: {diag.ids.join(", ")}</p>}</>
+          <p className="tx-muted">No marks have been published for you yet.</p></>
         )}
 
         {marks.length > 0 && (
@@ -127,13 +141,22 @@ export default function TranscriptPage() {
             <button type="button" onClick={() => window.print()} disabled={rows.length === 0}>
               Print report card
             </button>
+            <button type="button" onClick={downloadCard} disabled={!examId || pdfBusy}>
+              {pdfBusy ? "Preparing PDF..." : "Download result card (PDF)"}
+            </button>
+          </div>
+        )}
+
+        {pdfError && (
+          <div className="tx-msg" role="alert">
+            {pdfError}
           </div>
         )}
 
         {rows.length > 0 && (
           <article className="tx-sheet">
             <header className="tx-head">
-              <h1>KEEN Evening Coaching</h1>
+              <h1>KEEN EVENING COACHING</h1>
               <p>{subjectView === "all" ? "Full report card" : subjectView + " result"}</p>
             </header>
 

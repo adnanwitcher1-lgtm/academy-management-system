@@ -241,7 +241,85 @@ export const api = {
   createExpense: (body) => request("/api/expenses/", { method: "POST", body }),
   updateExpense: (id, body) => request(`/api/expenses/${id}/`, { method: "PATCH", body }),
   deleteExpense: (id) => request(`/api/expenses/${id}/`, { method: "DELETE" }),
+
+  // ---- Fees: challans, pending list, monthly generation ----
+  listPendingFees: () => request("/api/fees/payments/pending/"),
+  generateMonthChallans: (month) =>
+    request("/api/fees/payments/generate-month/", { method: "POST", body: month ? { month } : {} }),
+
+  // ---- Timetable: whole-cell editing (one class + one time slot + many subjects) ----
+  setTimetableCell: (payload) =>
+    request("/api/timetable/slots/set-cell/", { method: "POST", body: payload }),
+  deleteTimetableCell: (payload) =>
+    request("/api/timetable/slots/delete-cell/", { method: "POST", body: payload }),
+  copyTimetableDay: (payload) =>
+    request("/api/timetable/slots/copy-day/", { method: "POST", body: payload }),
+  clearTimetableDay: (payload) =>
+    request("/api/timetable/slots/clear-day/", { method: "POST", body: payload }),
+
+  // ---- Attendance holidays ----
+  listHolidays: () => request("/api/attendance/holidays/"),
+  createHoliday: (payload) =>
+    request("/api/attendance/holidays/", { method: "POST", body: payload }),
+  deleteHoliday: (id) => request(`/api/attendance/holidays/${id}/`, { method: "DELETE" }),
+
+  // ---- Student profile (one student's whole record) ----
+  studentOverview: (rosterId) => request(`/api/auth/students/${rosterId}/overview/`),
+  myOverview: () => request("/api/auth/students/me/overview/"),
+
+  // ---- Personal notifications (challans, fines, payments) ----
+  inbox: () => request("/api/notifications/inbox/"),
+  inboxRead: (id) => request(`/api/notifications/inbox/${id}/read/`, { method: "POST" }),
+  inboxReadAll: () => request("/api/notifications/inbox/read-all/", { method: "POST" }),
 };
+
+/* ---------- PDF downloads ----------
+   The server builds the PDFs. A plain <a href> cannot send the login token, so we fetch the file
+   with the token, then save it (or open it in a new tab for printing). */
+export const pdfPaths = {
+  feeSlip: (paymentId) => `/api/fees/payments/${paymentId}/slip/`,
+  reportCard: (examId, studentUserId) => `/api/exams/exams/${examId}/report-card/${studentUserId}/`,
+  studentProfile: (rosterId) => `/api/auth/students/${rosterId}/overview/pdf/`,
+  myProfile: () => "/api/auth/students/me/overview/pdf/",
+};
+
+export async function downloadPdf(path, filename = "document.pdf", { open = false } = {}) {
+  const run = async (retry) => {
+    const session = loadSession();
+    const headers = session?.access ? { Authorization: `Bearer ${session.access}` } : {};
+    const response = await fetch(`${BASE_URL}${path}`, { headers });
+    if (response.status === 401 && retry && session?.refresh) {
+      if (await refreshAccess(session.refresh)) return run(false);
+    }
+    return response;
+  };
+  // Open the tab first (inside the click) so the browser does not block it as a pop-up.
+  const tab = open ? window.open("", "_blank") : null;
+  const response = await run(true);
+  if (!response.ok) {
+    if (tab) tab.close();
+    let message = `Could not create the PDF (${response.status}).`;
+    try {
+      const data = await response.json();
+      if (data?.detail) message = data.detail;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(message, response.status);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  if (tab) {
+    tab.location.href = url;
+  } else {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
 
 
 

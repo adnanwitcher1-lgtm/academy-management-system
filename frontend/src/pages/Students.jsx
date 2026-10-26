@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import {
   AddButton,
@@ -15,6 +16,8 @@ import {
 const EMPTY = {
   roll_no: "",
   full_name: "",
+  father_name: "",
+  monthly_fee: "",
   class_name: "",
   section: "",
   school_class: "",
@@ -56,6 +59,8 @@ const classLabel = (s) =>
 const fromEntry = (s) => ({
   roll_no: s.roll_no ?? "",
   full_name: s.full_name ?? "",
+  father_name: s.father_name ?? "",
+  monthly_fee: s.monthly_fee === null || s.monthly_fee === undefined ? "" : String(Number(s.monthly_fee)),
   class_name: s.class_name ?? "",
   section: s.section ?? "",
   school_class: idString(s.school_class),
@@ -136,7 +141,7 @@ function buildWhatsappLink({
   );
 
   const text =
-    `Hi ${full_name}, here are your Keen Academy login details:\n` +
+    `Hi ${full_name}, here are your KEEN EVENING COACHING login details:\n` +
     `Username: ${username}\n` +
     `Password: ${password}\n\n` +
     `Please keep these safe.`;
@@ -193,11 +198,11 @@ function AdmissionForm({ student, onClose }) {
             <div className="af-head-left">
               <img
                 src="/keen-logo.png"
-                alt="KEEN Academy logo"
+                alt="KEEN EVENING COACHING logo"
                 style={{ WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}
               />
               <div>
-                <h1>KEEN Academy</h1>
+                <h1>KEEN EVENING COACHING</h1>
                 <p>Student Admission Form</p>
               </div>
             </div>
@@ -445,6 +450,13 @@ export default function Students() {
       return;
     }
 
+    const feeRaw = String(form.monthly_fee ?? "").trim();
+    if (feeRaw !== "" && (isNaN(Number(feeRaw)) || Number(feeRaw) < 0)) {
+      setFormError("Monthly fee must be a number, or leave it blank to use the class fee.");
+      return;
+    }
+    const feeValue = feeRaw === "" ? null : feeRaw;
+
     setBusy(true);
     setFormError("");
     setNotice("");
@@ -452,6 +464,8 @@ export default function Students() {
     const payload = {
       roll_no: rollNo,
       full_name: fullName,
+      father_name: form.father_name.trim(),
+      monthly_fee: feeValue,
       class_name: className,
       section: form.section.trim(),
       school_class:
@@ -689,6 +703,7 @@ export default function Students() {
         !query ||
         [
           student.full_name,
+          student.father_name,
           student.roll_no,
           student.class_name,
           student.section,
@@ -885,7 +900,7 @@ export default function Students() {
                   className={
                     INPUT_CLS + " pl-9"
                   }
-                  placeholder="Search by name, roll no, class, phone..."
+                  placeholder="Search by name, father name, roll no, class, phone..."
                   value={search}
                   onChange={(e) =>
                     setSearch(
@@ -1020,7 +1035,7 @@ export default function Students() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-[850px] w-full text-left text-sm">
+                <table className="min-w-[1050px] w-full text-left text-sm">
                   <thead>
                     <tr className="bg-keen-charcoal text-xs font-extrabold uppercase tracking-wider text-white">
                       <th className="px-4 py-3 sm:px-5 sm:py-4">
@@ -1033,6 +1048,10 @@ export default function Students() {
 
                       <th className="px-4 py-3 sm:px-5 sm:py-4">
                         Class
+                      </th>
+
+                      <th className="px-4 py-3 sm:px-5 sm:py-4">
+                        Monthly fee
                       </th>
 
                       <th className="px-4 py-3 sm:px-5 sm:py-4">
@@ -1071,10 +1090,19 @@ export default function Students() {
                               />
 
                               <div className="min-w-0">
-                                <div className="truncate text-sm font-bold text-keen-charcoal sm:text-base">
+                                <Link
+                                  to={"/hod/students/" + s.id}
+                                  className="block truncate text-sm font-bold text-keen-charcoal hover:underline sm:text-base"
+                                >
                                   {s.full_name ||
                                     "-"}
-                                </div>
+                                </Link>
+
+                                {s.father_name ? (
+                                  <div className="truncate text-xs text-keen-muted">
+                                    S/O {s.father_name}
+                                  </div>
+                                ) : null}
 
                                 <div className="whitespace-nowrap font-mono text-sm text-keen-muted">
                                   {s.roll_no ||
@@ -1097,6 +1125,12 @@ export default function Students() {
                             >
                               {classLabel(s)}
                             </span>
+                          </td>
+
+                          <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-keen-charcoal sm:px-5 sm:py-4">
+                            {s.monthly_fee !== null && s.monthly_fee !== undefined && s.monthly_fee !== ""
+                              ? "Rs " + Number(s.monthly_fee).toLocaleString("en-PK")
+                              : <span className="font-medium text-keen-muted">Class fee</span>}
                           </td>
 
                           <td className="px-4 py-3 sm:px-5 sm:py-4">
@@ -1124,6 +1158,13 @@ export default function Students() {
 
                           <td className="px-4 py-3 sm:px-5 sm:py-4">
                             <div className="flex shrink-0 gap-2">
+                              <Link
+                                to={"/hod/students/" + s.id}
+                                className="inline-flex items-center rounded-md border border-keen-border bg-white px-3 py-1.5 text-xs font-bold text-keen-charcoal transition-colors hover:bg-slate-50"
+                              >
+                                Profile
+                              </Link>
+
                               <EditButton
                                 onClick={() =>
                                   openEdit(s)
@@ -1399,6 +1440,32 @@ export default function Students() {
                   "full_name"
                 )}
                 autoComplete="name"
+              />
+            </FormItem>
+
+            <FormItem label="Father name">
+              <input
+                className={INPUT_CLS + " w-full"}
+                placeholder="Father's full name"
+                value={form.father_name}
+                onChange={update("father_name")}
+                autoComplete="off"
+              />
+            </FormItem>
+
+            <FormItem
+              label="Monthly fee (Rs)"
+              hint="Optional. Leave blank to use the class fee."
+            >
+              <input
+                type="number"
+                min="0"
+                step="1"
+                className={INPUT_CLS + " w-full"}
+                placeholder="Class fee"
+                value={form.monthly_fee}
+                onChange={update("monthly_fee")}
+                inputMode="numeric"
               />
             </FormItem>
 
