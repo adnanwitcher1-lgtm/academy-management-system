@@ -12,6 +12,7 @@ from exams.models import Exam
 from expenses.models import Expense
 from fees import billing
 from fees.models import FeePayment
+from otherincome.models import OtherCollection
 from accounts.models import StudentRoster, TeacherProfile, TeacherTask
 
 User = get_user_model()
@@ -55,7 +56,7 @@ def billing_class(user):
 def finance_summary(today):
     """Money in, money out and what is still owed, for the admin dashboard.
 
-    income = fees actually received (by the day they were paid); expenses = the Expenses page.
+    income = fees actually received (by the day they were paid) + other collections (sheets, notes...); expenses = the Expenses page.
     A negative net means the academy is running at a loss."""
     live = FeePayment.objects.exclude(status=FeePayment.Status.CARRIED)
     paid = live.filter(status=FeePayment.Status.PAID)
@@ -65,9 +66,14 @@ def finance_summary(today):
     months = []
     for d in month_starts(6):
         nxt = next_month(d)
-        income = _sum(paid.filter(paid_on__gte=d, paid_on__lt=nxt))
+        fees_in = _sum(paid.filter(paid_on__gte=d, paid_on__lt=nxt))
+        other_in = float(OtherCollection.objects.filter(date__gte=d, date__lt=nxt).aggregate(t=Sum("amount"))["t"] or 0)
+        income = fees_in + other_in
         spent = float(Expense.objects.filter(date__gte=d, date__lt=nxt).aggregate(t=Sum("amount"))["t"] or 0)
-        months.append({"month": d.strftime("%b"), "income": income, "expenses": spent, "net": income - spent})
+        months.append(
+            {"month": d.strftime("%b"), "income": income, "fee_income": fees_in, "other_income": other_in,
+             "expenses": spent, "net": income - spent}
+        )
     now = months[-1]
 
     billed = _sum(live.filter(month=this_month))
@@ -92,6 +98,13 @@ def finance_summary(today):
     return {
         "month_label": this_month.strftime("%B %Y"),
         "income": now["income"],
+        "fee_income": now["fee_income"],
+        "other_income": now["other_income"],
+        "other_by_category": [
+            {"label": dict(OtherCollection.Category.choices).get(c["category"], c["category"]), "amount": float(c["t"])}
+            for c in OtherCollection.objects.filter(date__gte=this_month, date__lt=next_month(this_month))
+            .values("category").annotate(t=Sum("amount")).order_by("-t")
+        ],
         "expenses": now["expenses"],
         "net": now["net"],
         "is_loss": now["net"] < 0,

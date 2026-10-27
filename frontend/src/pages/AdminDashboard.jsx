@@ -192,18 +192,23 @@ function FinanceSection({ f }) {
   const tile = (label, value, tone, hint) => (
     <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
       <div className="text-xs font-semibold text-slate-400">{label}</div>
-      <div className={`text-2xl font-extrabold ${tone}`}>{value}</div>
+      <div className={`whitespace-nowrap text-xl font-extrabold ${tone}`}>{value}</div>
       {hint && <div className="text-xs text-slate-400">{hint}</div>}
     </div>
   );
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
-        {tile(`Income (${f.month_label})`, money(f.income), "text-emerald-600", "Fees received this month")}
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-7">
+        {tile(`Income (${f.month_label})`, money(f.income), "text-emerald-600", `Fees ${money(f.fee_income)} + other ${money(f.other_income)}`)}
+        <Link to="/collections" className="rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-cyan-300 hover:shadow-md">
+          <div className="text-xs font-semibold text-slate-400">Other collections</div>
+          <div className="whitespace-nowrap text-xl font-extrabold text-emerald-600">{money(f.other_income)}</div>
+          <div className="truncate text-xs text-slate-400">{(f.other_by_category || []).map((c) => c.label).join(", ") || "Sheets, notes, books..."}</div>
+        </Link>
         {tile("Expenses", money(f.expenses), "text-slate-800", "Rent, bills, other")}
         <div className={`rounded-xl border px-4 py-3 ${loss ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
           <div className="text-xs font-semibold text-slate-500">{loss ? "Loss" : "Profit"}</div>
-          <div className={`text-2xl font-extrabold ${loss ? "text-rose-600" : "text-emerald-600"}`}>{money(Math.abs(net))}</div>
+          <div className={`whitespace-nowrap text-xl font-extrabold ${loss ? "text-rose-600" : "text-emerald-600"}`}>{money(Math.abs(net))}</div>
           <div className="text-xs text-slate-500">Income minus expenses</div>
         </div>
         {tile("Pending fees", money(f.pending_total), "text-amber-600", `${f.pending_students} student(s)`)}
@@ -224,7 +229,7 @@ function FinanceSection({ f }) {
             ))}
           </div>
           <div className="mt-2 flex gap-4 text-xs text-slate-500">
-            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />Income</span>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />Income (fees + collections)</span>
             <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-slate-400" />Expenses</span>
             <span>Monthly salaries: {money(f.salaries_monthly)} · New admissions this month: {f.new_admissions}</span>
           </div>

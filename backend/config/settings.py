@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'academics',
     'attendance',
     "expenses",
+    "otherincome",
     'fees',
     'inquiries',
     'homework',

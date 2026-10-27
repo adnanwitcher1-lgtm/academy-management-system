@@ -10,6 +10,7 @@ import MyTasks from "./pages/MyTasks";
 import Inquiries from "./pages/Inquiries";
 import FeeManagement from "./pages/FeeManagement";
 import Expenses from "./pages/Expenses";
+import Collections from "./pages/Collections";
 import TeacherSettings from "./pages/TeacherSettings";
 import DailyQueries from "./pages/DailyQueries";
 import MyFees from "./pages/MyFees";
@@ -108,6 +109,14 @@ export default function App() {
             element={
               <Protected allow={["hod", "admin", "staff"]}>
                 <FeeManagement />
+              </Protected>
+            }
+          />
+          <Route
+            path="/collections"
+            element={
+              <Protected allow={["hod", "admin", "staff"]}>
+                <Collections />
               </Protected>
             }
           />

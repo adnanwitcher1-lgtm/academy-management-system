@@ -241,6 +241,12 @@ export const api = {
   createExpense: (body) => request("/api/expenses/", { method: "POST", body }),
   updateExpense: (id, body) => request(`/api/expenses/${id}/`, { method: "PATCH", body }),
   deleteExpense: (id) => request(`/api/expenses/${id}/`, { method: "DELETE" }),
+  // Other collections (sheets, notes, books...) - counted as income
+  listCollections: () => request("/api/collections/"),
+  collectionsSummary: () => request("/api/collections/summary/"),
+  createCollection: (body) => request("/api/collections/", { method: "POST", body }),
+  updateCollection: (id, body) => request(`/api/collections/${id}/`, { method: "PATCH", body }),
+  deleteCollection: (id) => request(`/api/collections/${id}/`, { method: "DELETE" }),
 
   // ---- Fees: challans, pending list, monthly generation ----
   listPendingFees: () => request("/api/fees/payments/pending/"),
