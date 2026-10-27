@@ -59,6 +59,13 @@ export default function StudentDashboard() {
   const [marks, setMarks] = useState([]);
   const [attendancePct, setAttendancePct] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [me, setMe] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.myOverview().then((d) => alive && setMe(d?.student || null)).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -185,9 +192,23 @@ export default function StudentDashboard() {
       <div className="sd">
         <div className="sd-date">{formattedDate}</div>
         <div className="sd-head">
-          <h1>Welcome back{displayName ? ", " + displayName : ""}</h1>
+          <h1>Welcome to KEEN EVENING COACHING</h1>
           <Link to="/timetable" className="sd-link">View full timetable &rarr;</Link>
         </div>
+
+        <section className="sd-id">
+          <div className="sd-id-av">{(me?.full_name || displayName || "?").trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase()}</div>
+          <div className="sd-id-main">
+            <div className="sd-id-name">{me?.full_name || displayName}</div>
+            <div className="sd-id-sub">{me?.father_name ? "S/O " + me.father_name : ""}</div>
+          </div>
+          <div className="sd-id-chips">
+            <span><b>Roll no</b> {me?.roll_no || "-"}</span>
+            <span><b>Class</b> {me?.class_label || "-"}</span>
+            {me?.phone_number ? <span><b>Phone</b> {me.phone_number}</span> : null}
+          </div>
+          <Link to="/student/profile" className="sd-link">My profile &rarr;</Link>
+        </section>
 
         <div className="sd-hero">
           <section className="sd-banner">
@@ -332,6 +353,14 @@ const css = `
 .sd-date { font-size: 12px; font-weight: 700; letter-spacing: .12em; color: #5d6b7a; }
 .sd-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 20px; }
 .sd-head h1 { margin: 0; font-size: 28px; color: #1c2530; }
+.sd-id { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 18px; background: #fff; border: 1px solid #e3e8ee; border-radius: 16px; padding: 14px 18px; margin-bottom: 18px; }
+.sd-id-av { width: 48px; height: 48px; border-radius: 14px; background: #0f2230; color: #19d3f3; display: grid; place-items: center; font-weight: 800; }
+.sd-id-main { min-width: 140px; }
+.sd-id-name { font-size: 18px; font-weight: 800; color: #1c2530; }
+.sd-id-sub { font-size: 13px; color: #5d6b7a; }
+.sd-id-chips { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+.sd-id-chips span { background: #eef9fb; color: #0f2230; border-radius: 999px; padding: 5px 12px; font-size: 13px; }
+.sd-id-chips b { color: #0a8a8f; margin-right: 4px; font-weight: 700; }
 .sd-link { font-size: 14px; font-weight: 700; color: #0a8a8f; text-decoration: none; white-space: nowrap; }
 .sd-link:hover { text-decoration: underline; }
 .sd-muted { color: #5d6b7a; font-size: 14px; }

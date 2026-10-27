@@ -89,7 +89,7 @@ export default function TeacherDashboard() {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const firstName = titleCase(String(session?.username || "").split(/[\s._-]/)[0]);
+  const firstName = session?.fullName || titleCase(String(session?.username || "").split(/[\s._-]/)[0]);
 
   const todayLectures = useMemo(
     () =>
@@ -127,9 +127,9 @@ export default function TeacherDashboard() {
             {today}, {MONTHS[now.getMonth()]} {now.getDate()}
           </p>
           <h2 className="mt-2 text-3xl font-extrabold text-keen-charcoal sm:text-4xl">
-            {greeting}{firstName ? ", " + firstName : ""}.
+            Welcome to KEEN EVENING COACHING
           </h2>
-          <p className="mt-1 text-sm text-keen-muted">Here&apos;s what&apos;s happening with your classes today.</p>
+          <p className="mt-1 text-sm text-keen-muted">{greeting}{firstName ? ", " + firstName : ""}. Here&apos;s what&apos;s happening with your classes today.</p>
         </div>
         <a href="/teacher/tasks" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#17E0E4] to-[#0AA9D4] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:shadow-md">
           <span className="text-lg leading-none">+</span> Create assignment

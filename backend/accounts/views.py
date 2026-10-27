@@ -178,14 +178,18 @@ class StudentRosterManageDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAdmin]
 
     def destroy(self, request, *args, **kwargs):
+        """Delete a student completely: the login account and all their records
+        (fees, attendance, results, notifications) go with them."""
+        from django.db import transaction
+
         entry = self.get_object()
-        if entry.is_claimed or hasattr(entry, "student_account"):
-            return Response(
-                {"detail": "This student already has a login account, so the roster record cannot be deleted."},
-                status=400,
-            )
-        entry.delete()
+        with transaction.atomic():
+            profile = getattr(entry, "student_account", None)
+            if profile is not None:
+                profile.user.delete()  # cascades to the profile, fees, attendance, marks...
+            entry.delete()
         return Response(status=204)
+
 
 class ResetTeacherPasswordView(APIView):
     permission_classes = [IsAdmin]

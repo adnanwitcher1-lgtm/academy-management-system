@@ -624,8 +624,8 @@ export default function FeeManagement() {
 
   return (
     <AppShell
-      title={greeting() + (displayName ? ", " + displayName : "")}
-      subtitle="Here's how your academy's fee collection is looking today."
+      title="Welcome to KEEN EVENING COACHING"
+      subtitle={greeting() + (displayName ? ", " + displayName : "") + ". Here's how fee collection is looking today."}
     >
       <style>{css}</style>
 
@@ -671,8 +671,8 @@ export default function FeeManagement() {
         <div className="fx-stat">
           <span className="fx-tile fx-t-amber"><Ico name="calendar" /></span>
           <p>Pending amount</p>
-          <strong>{money(stats.pending)}</strong>
-          <small>{stats.pendStudents} student(s) pending</small>
+          <strong>{money(stats.pending + stats.overdue)}</strong>
+          <small>{stats.pendStudents + stats.overStudents} student(s) unpaid</small>
         </div>
         <div className="fx-stat">
           <span className="fx-tile fx-t-red"><Ico name="receipt" /></span>
@@ -770,12 +770,12 @@ export default function FeeManagement() {
           <table className="fx-table">
             <thead>
               <tr>
-                <th>Student</th><th>Student ID</th><th>Amount</th><th>Payment date</th><th>Status</th><th />
+                <th>Student</th><th>Student ID</th><th>Amount</th><th>Payment date</th><th>Status</th><th>Received by</th><th />
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={6} className="fx-empty">Loading...</td></tr>}
-              {!loading && visible.length === 0 && <tr><td colSpan={6} className="fx-empty">No students match.</td></tr>}
+              {loading && <tr><td colSpan={7} className="fx-empty">Loading...</td></tr>}
+              {!loading && visible.length === 0 && <tr><td colSpan={7} className="fx-empty">No students match.</td></tr>}
               {!loading && visible.map((row) => {
                 const p = row.payment;
                 const st = computedStatus(p);
@@ -788,11 +788,12 @@ export default function FeeManagement() {
                       </div>
                     </td>
                     <td className="fx-id">{row.student.roll_no || "-"}</td>
-                    <td className="fx-amt">{p ? money(p.amount) : "-"}</td>
+                    <td className="fx-amt">{p ? money(p.total ?? p.amount) : "-"}</td>
                     <td className="fx-date">
                       {p ? (st === "paid" && p.paid_on ? fmtDay(p.paid_on) : "Due " + fmtShort(p.due_date)) : "Not billed"}
                     </td>
                     <td><span className={"fx-pill fx-" + st}>{STATUS_LABEL[st]}</span></td>
+                    <td className="fx-recv">{st === "paid" && p?.received_by_name ? <strong>{p.received_by_name}</strong> : <span className="fx-muted">-</span>}</td>
                     <td>
                       <div className="fx-row-actions">
                         {st === "paid" ? (
@@ -1004,6 +1005,8 @@ const css = `
 .fx-tabs button { padding: 12px 16px; border: 0; border-bottom: 3px solid transparent; background: none; font: inherit; font-size: 15px; font-weight: 600; color: #5d6b7a; cursor: pointer; white-space: nowrap; }
 .fx-tabs button.on { color: #0fb3b8; border-bottom-color: #0fb3b8; }
 .fx-scroll { overflow-x: auto; }
+.fx-recv strong { font-weight: 700; color: #0f2230; white-space: nowrap; }
+.fx-muted { color: #94a3b8; }
 .fx-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .fx-table th { text-align: left; padding: 14px 24px; background: #f5f8f9; color: #5d6b7a; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
 .fx-table td { padding: 14px 24px; border-top: 1px solid #eef0f3; vertical-align: middle; white-space: nowrap; }

@@ -120,3 +120,25 @@ class StudentProfileTests(TestCase):
         self.assertEqual(other.get(url).status_code, 403)
         teacher = APIClient(); teacher.force_authenticate(make_teacher("t2", "Miss X"))
         self.assertEqual(teacher.get(url).status_code, 403)
+
+
+class StudentDeleteTests(TestCase):
+    def test_admin_can_delete_student_with_login_and_records(self):
+        from rest_framework.test import APIClient
+        from fees.models import FeePayment
+        from accounts.models import StudentRoster, User
+        from accounts.factories import make_admin, make_class, make_student
+        from datetime import date
+
+        admin = make_admin()
+        klass = make_class("9th")
+        student = make_student(roll="D001", klass=klass)
+        FeePayment.objects.create(student=student, amount=1000, due_date=date.today())
+        roster_id = student.student_profile.roster_entry_id
+        client = APIClient()
+        client.force_authenticate(admin)
+        r = client.delete(f"/api/auth/students/manage/{roster_id}/")
+        self.assertEqual(r.status_code, 204)
+        self.assertFalse(User.objects.filter(pk=student.pk).exists())
+        self.assertFalse(StudentRoster.objects.filter(pk=roster_id).exists())
+        self.assertFalse(FeePayment.objects.filter(student_id=student.pk).exists())

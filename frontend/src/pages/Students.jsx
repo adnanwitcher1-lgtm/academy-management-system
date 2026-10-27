@@ -562,7 +562,7 @@ export default function Students() {
           s.full_name +
           " (" +
           s.roll_no +
-          ")? This can't be undone."
+          ")? Their login and ALL their records (fees, attendance, results) will be deleted too. This can't be undone."
       )
     ) {
       return;

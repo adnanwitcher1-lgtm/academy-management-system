@@ -278,7 +278,12 @@ export default function AdminDashboard() {
       summary.counts.students = asList(roster).length;
       summary.counts.pending_signups = asList(pending).length;
       const todayStr = new Date().toISOString().slice(0, 10);
-      summary.todayInquiries = asList(inquiriesRaw).filter((i) => (i.created_at || "").slice(0, 10) === todayStr);
+      const leads = asList(inquiriesRaw);
+      summary.todayInquiries = leads.filter((i) => (i.created_at || "").slice(0, 10) === todayStr);
+      // Everything still being followed up, newest first (not only today's).
+      summary.openInquiries = leads
+        .filter((i) => !["enrolled", "dropped"].includes(i.status))
+        .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
       setData(summary);
     } catch (e) {
       setError(e.message || "Could not load the dashboard.");
@@ -300,7 +305,7 @@ export default function AdminDashboard() {
     );
   if (!data) return <AppShell title="Admin dashboard"><p className="text-slate-500">Loading dashboard...</p></AppShell>;
 
-  const { counts, enrollment, attendance, fees, homework_pending, teachers, todayInquiries = [] } = data;
+  const { counts, enrollment, attendance, fees, homework_pending, teachers, todayInquiries = [], openInquiries = [] } = data;
   const tasks = data.tasks || { pending: 0, done: 0 };
   const growth =
     enrollment.length > 1 && enrollment[0].count > 0
@@ -314,12 +319,13 @@ export default function AdminDashboard() {
     ["Subjects", counts.subjects, "/academics/subjects"],
     ["Exams", counts.exams, "/exams"],
     ["Pending signups", counts.pending_signups, "/hod/students"],
+    ["Open inquiries", openInquiries.length, "/inquiries"],
   ];
 
   return (
     <AppShell
-      title="Admin dashboard"
-      subtitle="Overview of attendance, fees and academic operations."
+      title="Welcome to KEEN EVENING COACHING"
+      subtitle="Admin dashboard: overview of income, attendance, fees and inquiries."
       action={
         <Button variant="quiet" onClick={load} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
@@ -328,7 +334,7 @@ export default function AdminDashboard() {
     >
     <div className="space-y-6">
       {data.finance && <FinanceSection f={data.finance} />}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
         {miniStats.map(([label, value, to]) => (
           <Link key={label} to={to} className="rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-cyan-300 hover:shadow-md">
             <div className="text-xs font-semibold text-slate-400">{label}</div>
@@ -361,18 +367,20 @@ export default function AdminDashboard() {
         </Card>
 
         <Card
-          title="Today's Inquiries" to="/inquiries"
-          right={<Pill tone={todayInquiries.length > 0 ? "cyan" : "slate"}>{todayInquiries.length} today</Pill>}
+          title="Inquiries" to="/inquiries"
+          right={<Pill tone={openInquiries.length > 0 ? "cyan" : "slate"}>{openInquiries.length} open{todayInquiries.length ? ` · ${todayInquiries.length} today` : ""}</Pill>}
         >
-          {todayInquiries.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">No inquiries today.</p>
+          {openInquiries.length === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-400">No open inquiries.</p>
           ) : (
             <ul className="divide-y divide-slate-100 text-sm">
-              {todayInquiries.slice(0, 5).map((i) => (
-                <li key={i.id} className="flex items-center justify-between py-2">
-                  <div>
-                    <div className="font-semibold text-slate-700">{i.student_name}</div>
-                    <div className="text-xs text-slate-400">{i.intended_class}</div>
+              {openInquiries.slice(0, 6).map((i) => (
+                <li key={i.id} className="flex items-center justify-between gap-2 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-semibold text-slate-700">{i.student_name}</div>
+                    <div className="truncate text-xs text-slate-400">
+                      {i.intended_class}{i.guardian_phone ? " · " + i.guardian_phone : ""}{i.follow_up_date ? " · follow-up " + i.follow_up_date : ""}
+                    </div>
                   </div>
                   <Pill tone={i.status === "enrolled" ? "green" : i.status === "dropped" ? "red" : "cyan"}>
                     {i.status.replace("_", " ")}
